@@ -183,6 +183,9 @@ function updateNavVisibility(userType, isLoggedIn) {
         $('#student-nav').show();
         $('#tutor-auth-nav').show();
     }
+
+    // This should be the last line in the function:
+    updateMobileMenuLinks();
 }
 
 // Combined Sign Out Handler
@@ -1426,10 +1429,68 @@ function loadLandingPageView() {
         e.preventDefault();
         loadStudentSignInView();
     });
+
     
     $('#tutor-sign-in-from-landing').off('click').on('click', function(e) {
         e.preventDefault();
         loadTutorSignInView();
+    });
+}
+
+
+// Function to dynamically update the mobile menu content
+function updateMobileMenuLinks() {
+    const mobileMenuContent = $('#mobile-menu > div');
+    const loggedInTutor = localStorage.getItem('loggedInTutor');
+    const loggedInStudent = localStorage.getItem('loggedInStudent');
+    
+    mobileMenuContent.empty();
+    
+    // Helper function for consistent link styling
+    const linkClasses = 'block text-lg font-semibold text-white p-3 rounded-md hover:bg-indigo-700 transition w-full text-left';
+
+    // Logged In Tutor View
+    if (loggedInTutor) {
+        const tutor = JSON.parse(loggedInTutor);
+        mobileMenuContent.append(`<p class="text-gray-300 pt-2 pb-1">Logged in as: **${tutor.name}**</p>`);
+        mobileMenuContent.append(`<a href="#" id="tutor-dashboard-link-mobile" class="${linkClasses}">Tutor Dashboard</a>`);
+        mobileMenuContent.append(`<button id="nav-sign-out-mobile" data-user-type="Tutor" class="w-full text-left bg-red-500 text-white px-3 py-2 rounded-md hover:bg-red-600 transition font-semibold">Sign Out</button>`);
+    } 
+    // Logged In Student View
+    else if (loggedInStudent) {
+        const student = JSON.parse(loggedInStudent);
+        mobileMenuContent.append(`<p class="text-gray-300 pt-2 pb-1">Logged in as: **${student.name}**</p>`);
+        mobileMenuContent.append(`<a href="#" id="student-tutorials-link-mobile" class="${linkClasses}">My Enrolled Courses</a>`);
+        mobileMenuContent.append(`<a href="#" id="view-tutorials-mobile" class="${linkClasses}">Course Catalog</a>`);
+        mobileMenuContent.append(`<button id="nav-sign-out-mobile" data-user-type="Student" class="w-full text-left bg-red-500 text-white px-3 py-2 rounded-md hover:bg-red-600 transition font-semibold">Sign Out</button>`);
+    } 
+    // Logged Out View
+    else {
+        mobileMenuContent.append(`<a href="#" id="view-tutorials-mobile" class="${linkClasses}">View Course Catalog</a>`);
+        mobileMenuContent.append(`<a href="#" id="student-sign-in-mobile" class="${linkClasses}">Student Login</a>`);
+        mobileMenuContent.append(`<a href="#" id="student-sign-up-mobile" class="bg-indigo-500 ${linkClasses}">Student Sign Up</a>`);
+        mobileMenuContent.append(`<a href="#" id="tutor-sign-in-mobile" class="${linkClasses}">Tutor Login</a>`);
+        mobileMenuContent.append(`<a href="#" id="tutor-sign-up-mobile" class="bg-green-500 ${linkClasses}">Tutor Sign Up</a>`);
+    }
+
+    // Attach mobile-specific click handlers
+    mobileMenuContent.find('a, button').on('click', function(e) {
+        e.preventDefault();
+        
+        // Hide menu after click
+        $('#mobile-menu-toggle').trigger('click'); 
+
+        // Trigger the corresponding function based on ID
+        const id = $(this).attr('id');
+        if (id.includes('home')) loadLandingPageView();
+        else if (id.includes('tutor-dashboard-link')) loadTutorDashboardView();
+        else if (id.includes('student-tutorials-link')) loadStudentMyCoursesView();
+        else if (id.includes('view-tutorials') || id.includes('catalog')) loadStudentCourseCatalog();
+        else if (id.includes('student-sign-in')) loadStudentSignInView();
+        else if (id.includes('student-sign-up')) loadStudentSignUpView();
+        else if (id.includes('tutor-sign-in')) loadTutorSignInView();
+        else if (id.includes('tutor-sign-up')) loadTutorSignUpView();
+        else if (id.includes('nav-sign-out')) $('#nav-sign-out').trigger('click');
     });
 }
 
@@ -1454,6 +1515,36 @@ $('#home-nav-link').on('click', function(e) {
     }
 });
 
+// ... inside $(document).ready(function() { ... });
+
+    // --- Footer Link Handlers ---
+    $('#home-footer-link').on('click', function(e) { e.preventDefault(); loadLandingPageView(); });
+    $('#catalog-footer-link').on('click', function(e) { e.preventDefault(); loadStudentCourseCatalog(); });
+    $('#tutor-login-footer-link').on('click', function(e) { e.preventDefault(); loadTutorSignInView(); });
+    
+// ... continue with existing ready function logic ...
+
+
+        // --- MOBILE MENU TOGGLE HANDLER ---
+$('#mobile-menu-toggle').on('click', function() {
+    const mobileMenu = $('#mobile-menu');
+    const isHidden = mobileMenu.hasClass('hidden');
+    
+    if (isHidden) {
+        // Show menu
+        mobileMenu.removeClass('hidden');
+        $('#menu-icon').addClass('hidden');
+        $('#close-icon').removeClass('hidden');
+    } else {
+        // Hide menu
+        mobileMenu.addClass('hidden');
+        $('#menu-icon').removeClass('hidden');
+        $('#close-icon').addClass('hidden');
+    }
+    
+    // Rerender mobile menu links to match the current logged-in state
+    updateMobileMenuLinks(); 
+});
     
     // --- Attaching Navigation Click Handlers ---
     $('#tutor-sign-in').on('click', function(e) { e.preventDefault(); loadTutorSignInView(); });
