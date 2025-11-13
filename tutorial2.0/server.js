@@ -37,7 +37,13 @@ const storage = multer.diskStorage({
     },
 });
 
-const upload = multer({ storage: storage });
+// CRITICAL FIX (Request 1): Add limits for file size (500MB)
+const upload = multer({ 
+    storage: storage,
+    limits: { 
+        fileSize: 500 * 1024 * 1024 // 500 MB 
+    }
+});
 
 // --- 2. Middlewares ---
 
@@ -89,41 +95,7 @@ async function recalculateCourseRating(courseId) {
 
 // --- User/Auth Routes ---
 
-// 3.1. POST /api/users/signup - Register a new user (Student or Tutor)
-// app.post('/api/users/signup', async (req, res) => {
-//     const { name, email, password, role } = req.body;
-//     try {
-//         if (role !== 'student' && role !== 'tutor') {
-//             return res.status(400).json({ message: 'Invalid user role specified.' });
-//         }
-//         const user = await User.create({ name, email, password, role });
-//         // The password is automatically hashed by the pre-save middleware in User.js
-//         res.status(201).json({ 
-//             _id: user._id, 
-//             name: user.name, 
-//             email: user.email, 
-//             role: user.role,
-//             message: `${role} account created successfully!` 
-//         });
-//     } catch (error) {
-//         if (error.code === 11000) {
-//             return res.status(400).json({ message: 'Email already in use.' });
-//         }
-//         console.error("Signup error:", error);
-//         res.status(500).json({ message: 'Server error during signup.' });
-//     }
-// });
-// server.js
-
-// ... other imports and routes ...
-
-// 5. POST /api/users/signup - User Registration (Student or Tutor)
-// server.js (Add this block for the User Sign Up route)
-
-// POST /api/users/signup - Registers a new user (Student or Tutor)
-// server.js (Add this block for the User Sign Up route)
-
-// POST /api/users/signup - Registers a new user (Student or Tutor)
+// 3.1. POST /api/users/signup - Registers a new user (Student or Tutor)
 app.post('/api/users/signup', async (req, res) => {
     const { name, email, password, role } = req.body;
 
@@ -191,57 +163,41 @@ app.post('/api/users/signin', async (req, res) => {
     }
     
     // Ensure role is lowercase to match the model's enum ['tutor', 'student']
-    const queryRole = role.toLowerCase(); 
+    const queryRole = role.toLowerCase();
 
     try {
         // 1. Find the user by email AND role
         const user = await User.findOne({ email, role: queryRole });
 
         if (user && (await user.matchPassword(password))) {
-            // Success: Password matches. 
+            // Success: Password matches.
             // Return only safe/necessary user data
             const userResponse = {
                 _id: user._id, // MongoDB ID
                 name: user.name,
                 email: user.email,
-                role: user.role // 'tutor' or 'student'
+                role: user.role
             };
-            
-            // 2. Respond with the user data
-            // res.json({ 
-            //     message: `${user.role === 'tutor' ? 'Tutor' : 'Student'} sign-in successful.`, 
-            //     user: userResponse 
-            // });
-            res.json({ 
-                message: `${user.role === 'tutor' ? 'Tutor' : 'Student'} sign-in successful.`, 
-                user: { // CRITICAL: The user object is nested here
-                    _id: user._id, 
-                    name: user.name,
-                    email: user.email,
-                    role: user.role 
-                } 
-            });
-
+            return res.json({ message: 'Authentication successful.', user: userResponse });
         } else {
-            // Failure: User not found or password incorrect
-            // Send 401 Unauthorized for security
-            res.status(401).json({ message: 'Invalid credentials or incorrect user type.' });
+            // Failure: User not found or password mismatch
+            return res.status(401).json({ message: 'Invalid credentials or incorrect role selected.' });
         }
 
     } catch (error) {
-        console.error("Error during user sign-in:", error);
-        // CRITICAL: This catch prevents the 500 error from crashing the server
-        res.status(500).json({ message: 'Server error during sign-in process.' });
+        console.error('Sign In Error:', error);
+        res.status(500).json({ message: 'Server error during sign-in.' });
     }
 });
 
 // --- Course Routes (Tutor & Student) ---
 
-// 3.3. POST /api/courses - Create a new course (Tutor only)
-app.post('/api/courses', upload.single('assetFile'), async (req, res) => {
+// 3.3. POST /api/courses - Create a new course
+app.post('/api/courses', upload.single('video'), async (req, res) => {
+    const { tutorId, title, description, assetType, assetUrl, chapters } = req.body;
+
     try {
-        const { tutorId, title, description, assetType, assetUrl, chapters } = req.body;
-        
+        // Basic validation and file cleanup on failure
         if (!tutorId || !title || !description) {
             // Attempt to clean up orphaned file if basic data is missing
             if (req.file) fs.unlinkSync(req.file.path);
@@ -258,6 +214,10 @@ app.post('/api/courses', upload.single('assetFile'), async (req, res) => {
             if (!assetUrl) {
                 return res.status(400).json({ message: 'Missing YouTube URL for YouTube asset type.' });
             }
+            // Simple validation check for URL structure
+            if (!assetUrl.includes('youtube.com') && !assetUrl.includes('youtu.be')) {
+                 return res.status(400).json({ message: 'Invalid YouTube URL provided.' });
+            }
             asset = { type: 'youtube', url: assetUrl };
         } else {
             if (req.file) fs.unlinkSync(req.file.path);
@@ -272,6 +232,9 @@ app.post('/api/courses', upload.single('assetFile'), async (req, res) => {
             description,
             asset,
             chapters: chaptersArray,
+            averageRating: 0,
+            totalReviews: 0,
+            enrolledStudents: 0
         });
 
         res.status(201).json(newCourse);
@@ -287,7 +250,9 @@ app.get('/api/courses', async (req, res) => {
     try {
         const courses = await Course.find({})
             // Populate the tutor's name for display on the catalog
-            .populate('tutorId', 'name'); 
+            .populate('tutorId', 'name') 
+            .sort({ createdAt: -1 });
+
         res.json(courses);
     } catch (error) {
         console.error("Error fetching courses:", error);
@@ -295,50 +260,57 @@ app.get('/api/courses', async (req, res) => {
     }
 });
 
-// 3.5. GET /api/courses/:id - Fetch a single course by ID
-app.get('/api/courses/:id', async (req, res) => {
+// 3.5. GET /api/courses/:courseId - Fetch single course details
+app.get('/api/courses/:courseId', async (req, res) => {
     try {
-        const course = await Course.findById(req.params.id)
-            .populate('tutorId', 'name');
+        const course = await Course.findById(req.params.courseId)
+            // Populate the tutor's name
+            .populate('tutorId', 'name'); 
+
         if (!course) {
             return res.status(404).json({ message: 'Course not found.' });
         }
+
         res.json(course);
     } catch (error) {
-        console.error("Error fetching single course:", error);
+        console.error("Error fetching course details:", error);
         res.status(500).json({ message: 'Error fetching course details.' });
     }
 });
 
-// 3.6. GET /api/courses/tutor/:tutorId - Fetch courses by Tutor ID (Tutor Dashboard)
-app.get('/api/courses/tutor/:tutorId', async (req, res) => {
+// 3.6. GET /api/tutors/:tutorId/courses - Fetch courses published by a specific tutor
+app.get('/api/tutors/:tutorId/courses', async (req, res) => {
     try {
-        const courses = await Course.find({ tutorId: req.params.tutorId });
+        const courses = await Course.find({ tutorId: req.params.tutorId })
+            .sort({ createdAt: -1 });
+        
         res.json(courses);
     } catch (error) {
         console.error("Error fetching tutor courses:", error);
-        res.status(500).json({ message: 'Error fetching tutor dashboard courses.' });
+        res.status(500).json({ message: 'Error fetching tutor courses.' });
     }
 });
 
-// 3.7. DELETE /api/courses/:id - Delete a course (Tutor only)
-app.delete('/api/courses/:id', async (req, res) => {
+// 3.7. DELETE /api/courses/:courseId - Delete a course (Tutor)
+app.delete('/api/courses/:courseId', async (req, res) => {
     try {
-        const course = await Course.findByIdAndDelete(req.params.id);
+        const course = await Course.findByIdAndDelete(req.params.courseId);
+
         if (!course) {
             return res.status(404).json({ message: 'Course not found.' });
         }
 
-        // CRITICAL: Cleanup associated data
-        // 1. Delete the local video file if it exists
+        // 1. Delete associated local video file if it exists
         if (course.asset.type === 'local') {
             const filePath = path.join(UPLOADS_DIR, course.asset.url);
             if (fs.existsSync(filePath)) {
                 fs.unlinkSync(filePath);
             }
         }
+
         // 2. Delete all related Enrollments
         await Enrollment.deleteMany({ courseId: course._id });
+
         // 3. Delete all related Comments
         await Comment.deleteMany({ courseId: course._id });
 
@@ -349,11 +321,10 @@ app.delete('/api/courses/:id', async (req, res) => {
     }
 });
 
+
 // --- Enrollment Routes (Student) ---
 
-// server.js (Enrollment Route: POST /api/enrollments)
-
-// 8. POST /api/enrollments - Enroll a student in a course
+// 3.8. POST /api/enrollments - Enroll a student in a course
 app.post('/api/enrollments', async (req, res) => {
     try {
         const { studentId, courseId } = req.body;
@@ -375,51 +346,35 @@ app.post('/api/enrollments', async (req, res) => {
             courseId,
             progressPercentage: 0 // Default progress
         });
-
-        await newEnrollment.save(); 
+        await newEnrollment.save();
 
         // 4. Increment enrolledStudents count on the Course model
-        const course = await Course.findByIdAndUpdate(
-            courseId,
-            // $inc will create the field if it doesn't exist, which can be useful
-            { $inc: { enrolledStudents: 1 } },
-            { new: true, select: 'title' }
-        );
-        
-        // Final response
-        res.status(201).json({ 
-            message: `Enrollment in ${course ? course.title : 'Course'} successful.`,
-            enrollment: newEnrollment
-        });
+        // CRITICAL FIX (Request 3): Ensure safe update and return a success message
+        await Course.findByIdAndUpdate(courseId, { $inc: { enrolledStudents: 1 } }); 
+
+        res.status(201).json(newEnrollment); // Return the newly created enrollment object
 
     } catch (error) {
-        // Log the error to your console for debugging
-        console.error("Error during enrollment:", error.message, error.stack); 
-        // Send a generic 500 response
-        res.status(500).json({ message: 'Server error during enrollment. Please check the server console for details.' });
+        console.error('Enrollment error:', error);
+        // CRITICAL FIX (Request 3): Specific error message for the frontend
+        res.status(500).json({ message: 'Server error during enrollment. Please try again later.' });
     }
 });
 
-// 3.9. GET /api/enrollments/:studentId - Fetch enrolled courses for a student (My Courses View)
+// 3.9. GET /api/enrollments/:studentId - Fetch all courses a student is enrolled in
 app.get('/api/enrollments/:studentId', async (req, res) => {
     try {
         const enrollments = await Enrollment.find({ studentId: req.params.studentId })
-            // Populate course details and the course's tutor details
+            // Populate the full Course object and the Tutor's name within the course
             .populate({
                 path: 'courseId',
-                select: 'title description averageRating asset', // Select necessary course fields
-                populate: {
-                    path: 'tutorId',
-                    select: 'name' // Only need the name of the tutor
-                }
-            });
+                populate: { path: 'tutorId', select: 'name' } 
+            })
+            .sort({ createdAt: -1 });
 
-        if (enrollments.length === 0) {
-            return res.json([]);
-        }
         res.json(enrollments);
     } catch (error) {
-        console.error("Error fetching student enrollments:", error);
+        console.error("Error fetching enrolled courses:", error);
         res.status(500).json({ message: 'Error fetching enrolled courses.' });
     }
 });
@@ -427,10 +382,16 @@ app.get('/api/enrollments/:studentId', async (req, res) => {
 // 3.10. PATCH /api/enrollments/:enrollmentId - Update course progress (Student)
 app.patch('/api/enrollments/:enrollmentId', async (req, res) => {
     const { progressPercentage } = req.body;
+
     try {
+        // Input validation for progress
+        if (typeof progressPercentage !== 'number' || progressPercentage < 0 || progressPercentage > 100) {
+            return res.status(400).json({ message: 'Progress percentage must be a number between 0 and 100.' });
+        }
+
         const enrollment = await Enrollment.findByIdAndUpdate(
-            req.params.enrollmentId, 
-            { progressPercentage }, 
+            req.params.enrollmentId,
+            { progressPercentage },
             { new: true } // Return the updated document
         );
 
@@ -445,29 +406,62 @@ app.patch('/api/enrollments/:enrollmentId', async (req, res) => {
     }
 });
 
-// --- Comment/Review Routes (Student & Tutor) ---
-
-// 3.11. POST /api/comments - Post a new comment/review (Student only)
-app.post('/api/comments', async (req, res) => {
-    const { courseId, studentId, text, rating } = req.body;
+// 3.11. DELETE /api/enrollments/:enrollmentId - Remove a student from a course (Unenroll)
+app.delete('/api/enrollments/:enrollmentId', async (req, res) => {
     try {
-        if (!courseId || !studentId || !text) {
-            return res.status(400).json({ message: 'Missing required fields for comment.' });
+        const enrollment = await Enrollment.findByIdAndDelete(req.params.enrollmentId);
+
+        if (!enrollment) {
+            return res.status(404).json({ message: 'Enrollment not found.' });
         }
 
-        const newComment = await Comment.create({ courseId, studentId, text, rating });
+        // Decrement enrolledStudents count on the Course model
+        await Course.findByIdAndUpdate(enrollment.courseId, { $inc: { enrolledStudents: -1 } });
+
+        res.json({ message: 'Unenrolled successfully.' });
+    } catch (error) {
+        console.error("Error during unenrollment:", error);
+        res.status(500).json({ message: 'Server error during unenrollment.' });
+    }
+});
+
+
+// --- Comment/Review Routes (Student & Tutor) ---
+
+// 3.12. POST /api/comments - Add a new comment/review
+app.post('/api/comments', async (req, res) => {
+    try {
+        const { studentId, courseId, rating, comment } = req.body;
+
+        if (!studentId || !courseId || !rating || !comment) {
+             return res.status(400).json({ message: 'Missing required comment fields (studentId, courseId, rating, comment).' });
+        }
+
+        // Check if the student is enrolled in the course
+        const isEnrolled = await Enrollment.findOne({ studentId, courseId });
+        if (!isEnrolled) {
+            return res.status(403).json({ message: 'You must be enrolled in the course to leave a review.' });
+        }
         
-        // CRITICAL: Recalculate average rating after a new comment is added
+        // Prevent duplicate reviews from the same student on the same course
+        const existingComment = await Comment.findOne({ studentId, courseId });
+        if (existingComment) {
+             return res.status(400).json({ message: 'You have already left a review for this course. You can only update your existing review.' });
+        }
+
+        const newComment = await Comment.create({ studentId, courseId, rating, comment });
+        
+        // CRITICAL: Recalculate average rating on the Course model
         await recalculateCourseRating(courseId);
 
         res.status(201).json(newComment);
     } catch (error) {
-        console.error("Error creating comment:", error);
-        res.status(500).json({ message: 'Server error while creating comment.' });
+        console.error("Error posting comment:", error);
+        res.status(500).json({ message: 'Server error while posting comment.' });
     }
 });
 
-// 3.12. GET /api/comments/:courseId - Fetch all comments for a course
+// 3.13. GET /api/comments/:courseId - Fetch all comments for a course
 app.get('/api/comments/:courseId', async (req, res) => {
     try {
         const comments = await Comment.find({ courseId: req.params.courseId })
@@ -482,7 +476,7 @@ app.get('/api/comments/:courseId', async (req, res) => {
     }
 });
 
-// 3.13. DELETE /api/comments/:commentId - Delete a comment (Used by Tutor)
+// 3.14. DELETE /api/comments/:commentId - Delete a comment (Used by Tutor)
 app.delete('/api/comments/:commentId', async (req, res) => {
     try {
         const comment = await Comment.findByIdAndDelete(req.params.commentId);
@@ -507,7 +501,7 @@ mongoose.connect(ATLAS_URI)
     .then(() => {
         console.log('MongoDB Atlas connected successfully...');
         app.listen(port, () => {
-            console.log(`Server running on http://localhost:${port}`);
+            console.log(`Server is running on port: http://localhost:${port}`);
         });
     })
     .catch(err => {
