@@ -15,6 +15,7 @@ const assetSchema = new mongoose.Schema({
     },
 }, { _id: false });
 
+// Define the Chapter Sub-Schema
 const chapterSchema = new mongoose.Schema({
     title: {
         type: String,
@@ -26,7 +27,7 @@ const chapterSchema = new mongoose.Schema({
 }, { _id: true }); // Allows chapters to have their own IDs
 
 const courseSchema = new mongoose.Schema({
-    // CRITICAL: Reference to the User model (assuming User model is named 'User')
+    // Reference to the User model (Tutor)
     tutorId: {
         type: mongoose.Schema.Types.ObjectId,
         required: true,
@@ -46,6 +47,24 @@ const courseSchema = new mongoose.Schema({
         required: true,
     },
     chapters: [chapterSchema], // Array of chapters
+    // --- Rating fields (calculated) ---
+    averageRating: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 5,
+    },
+    totalReviews: {
+        type: Number,
+        default: 0,
+    },
+    // --- Enrollment Count field (calculated) ---
+    // Note: Enrollment count is often calculated live or stored on the Enrollment model.
+    // However, including it here simplifies API calls for course lists.
+    enrollmentCount: {
+        type: Number,
+        default: 0,
+    },
     createdAt: {
         type: Date,
         default: Date.now,

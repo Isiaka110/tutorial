@@ -1,814 +1,1275 @@
-// app.js (Frontend Code with REAL API Calls)
+// app.js (Frontend Code with REAL API Calls - FINAL)
 
-// --- 1. API Configuration (FIXED) ---
-// CRITICAL FIX: Assuming your Express backend is running on port 5000 (as recommended)
+// --- 1. API Configuration ---
 const API_BASE_URL = 'http://localhost:5000/api';
-// Assumes Express serves static uploads from a route like /uploads
-const API_BASE_ROOT = 'http://localhost:5000';
+const API_BASE_ROOT = 'http://localhost:5000'; // Used for fetching local assets
 
 // --- 2. Helper Functions for User Session ---
 
+/** Fetches the logged-in user's MongoDB ID. */
 function getLoggedInUserId() {
     const tutor = localStorage.getItem('loggedInTutor');
     const student = localStorage.getItem('loggedInStudent');
 
-    if (tutor) return JSON.parse(tutor).id;
-    if (student) return JSON.parse(student).id;
+    // CRITICAL FIX: Assumes MongoDB ID is stored as '_id'
+    if (tutor) return JSON.parse(tutor)._id;
+    if (student) return JSON.parse(student)._id;
     return null;
 }
 
+/** Determines if the logged-in user is a 'Tutor' or 'Student'. */
 function getLoggedInUserType() {
     if (localStorage.getItem('loggedInTutor')) return 'Tutor';
     if (localStorage.getItem('loggedInStudent')) return 'Student';
     return null;
 }
 
+/** Retrieves the full user object (id and name) from local storage. */
 function getLoggedInUser() {
     const userType = getLoggedInUserType();
     return userType ? JSON.parse(localStorage.getItem(`loggedIn${userType}`)) : null;
 }
 
-// --- 3. UI Helper: Navigation Visibility ---
+/** Clears the user session and reloads the landing page. */
+function handleSignOut(e) {
+    if (e) e.preventDefault();
+    localStorage.removeItem('loggedInTutor');
+    localStorage.removeItem('loggedInStudent');
+    // Clear content, update nav, and reload landing page
+    clearContentArea();
+    updateNavVisibility(null, false);
+    loadLandingPageView();
+}
 
+// --- 3. UI Helper Functions ---
+
+const $contentArea = $('#content-area');
+
+/** Clears the main content area. */
+function clearContentArea() {
+    $contentArea.html('');
+}
+
+/** Hides the mobile menu. */
+function hideMobileMenu() {
+    $('#mobile-menu').removeClass('translate-y-0').addClass('-translate-y-full');
+    $('#menu-path').attr('d', 'M4 6h16M4 12h16M4 18h16'); // Menu Icon
+}
+
+/** Constructs the full URL for a course asset. */
+function getAssetUrl(asset) {
+    if (asset.type === 'local') {
+        return `${API_BASE_ROOT}/uploads/${asset.url}`;
+    }
+    return asset.url; // YouTube URL
+}
+
+/** Truncates text for display in course cards. */
+function truncateText(text, length = 100) {
+    if (!text) return '';
+    return text.length > length ? text.substring(0, length) + '...' : text;
+}
+
+/** Generates star HTML based on a rating value. */
+function renderStarRating(rating) {
+    const maxRating = 5;
+    let starsHtml = '';
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 >= 0.5;
+
+    for (let i = 0; i < maxRating; i++) {
+        if (i < fullStars) {
+            starsHtml += `<i class="fas fa-star text-yellow-500"></i>`;
+        } else if (i === fullStars && hasHalfStar) {
+            starsHtml += `<i class="fas fa-star-half-alt text-yellow-500"></i>`;
+        } else {
+            starsHtml += `<i class="far fa-star text-gray-400"></i>`;
+        }
+    }
+    return `<span class="text-sm font-semibold mr-1">${rating.toFixed(1)}</span>${starsHtml}`;
+}
+
+/** Updates the navigation links based on user status. */
 function updateNavVisibility(userType, isLoggedIn) {
     const user = getLoggedInUser();
 
-    const tutorDashboardNavHtml = `
-        <a href="#" id="tutor-dashboard-link" class="text-white hover:text-indigo-200 transition font-medium">Dashboard</a>
-        <span class="text-white text-sm opacity-70" id="nav-welcome-message">Hello, ${user ? user.name.split(' ')[0] : 'Tutor'}!</span>
-        <a href="#" id="nav-sign-out" data-user-type="Tutor" class="bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 transition">Sign Out</a>
-    `;
+    // Reset all links visibility
+    $('.nav-signed-out, .nav-student, .nav-tutor, #nav-user-name, #mobile-nav-user-name').addClass('hidden');
+    $('.nav-signed-in').removeClass('hidden'); // Logout is always visible when logged in
 
-    const studentDashboardNavHtml = `
-        <a href="#" id="student-tutorials-link" class="text-white hover:text-indigo-200 transition font-medium">My Courses</a>
-        <span class="text-white text-sm opacity-70" id="nav-welcome-message">Welcome, ${user ? user.name.split(' ')[0] : 'Student'}!</span>
-        <a href="#" id="nav-sign-out" data-user-type="Student" class="bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 transition">Sign Out</a>
-    `;
-
-    // Reset all navigation sections
-    $('#student-nav').empty().show();
-    $('#tutor-auth-nav').empty().show();
-    $('#tutor-dashboard-nav').empty().hide();
-    $('#mobile-menu').empty();
+    let desktopHtml = '';
+    let mobileHtml = '';
 
     if (isLoggedIn) {
-        // Logged In State
-        $('#tutor-auth-nav').hide(); // Hide general tutor/student login options
+        // Display user name
+        const userNameHtml = `<span class="text-white text-lg font-semibold">${user.name.split(' ')[0]}</span>`;
+        $('#nav-user-name').html(userNameHtml).removeClass('hidden');
+        $('#mobile-nav-user-name').html(userNameHtml).removeClass('hidden');
 
         if (userType === 'Tutor') {
-            // Student links become "Browse Catalog"
-            $('#student-nav').html('<a href="#" id="view-tutorials-link" class="text-white hover:text-indigo-200 transition font-medium">Browse Catalog</a>');
-            // Show Tutor Dashboard links
-            $('#tutor-dashboard-nav').html(tutorDashboardNavHtml).show();
-
-            // Mobile Menu for Tutor
-            $('#mobile-menu').append(
-                `<a href="#" id="tutor-dashboard-link-mobile" class="block text-white font-semibold py-2">Tutor Dashboard</a>
-                 <a href="#" id="view-tutorials-link-mobile" class="block text-white py-2">Browse Catalog</a>
-                 <a href="#" id="nav-sign-out-mobile" data-user-type="Tutor" class="block bg-red-500 text-white px-3 py-1 rounded-md text-center hover:bg-red-600 transition mt-4">Sign Out (${user.name})</a>`
-            );
-            $('#tutor-dashboard-link-mobile').on('click', (e) => { e.preventDefault(); loadTutorDashboardView(); $('#mobile-menu').addClass('hidden'); });
-            $('#view-tutorials-link-mobile').on('click', (e) => { e.preventDefault(); loadStudentCourseCatalog(); $('#mobile-menu').addClass('hidden'); });
-            $('#nav-sign-out-mobile').on('click', (e) => { e.preventDefault(); handleSignOut('Tutor'); $('#mobile-menu').addClass('hidden'); });
-
-        } else if (userType === 'Student') {
-            // Show Student Logged In links (My Courses & Sign Out)
-            $('#student-nav').html(studentDashboardNavHtml).show();
-            // Still show Tutor Login option
-            $('#tutor-auth-nav').html('<span class="text-indigo-300">|</span> <a href="#" id="tutor-sign-in" class="text-white hover:text-indigo-200 transition font-medium">Tutor Login</a>').show();
-
-            // Mobile Menu for Student
-            $('#mobile-menu').append(
-                `<a href="#" id="student-tutorials-link-mobile" class="block text-white font-semibold py-2">My Courses</a>
-                 <a href="#" id="view-tutorials-link-mobile" class="block text-white py-2">Browse Catalog</a>
-                 <a href="#" id="tutor-sign-in-mobile" class="block text-white py-2 border-t border-indigo-600 mt-2 pt-2">Tutor Login</a>
-                 <a href="#" id="nav-sign-out-mobile" data-user-type="Student" class="block bg-red-500 text-white px-3 py-1 rounded-md text-center hover:bg-red-600 transition mt-4">Sign Out (${user.name})</a>`
-            );
-            $('#student-tutorials-link-mobile').on('click', (e) => { e.preventDefault(); loadStudentCoursesView(); $('#mobile-menu').addClass('hidden'); });
-            $('#view-tutorials-link-mobile').on('click', (e) => { e.preventDefault(); loadStudentCourseCatalog(); $('#mobile-menu').addClass('hidden'); });
-            $('#tutor-sign-in-mobile').on('click', (e) => { e.preventDefault(); loadTutorSignInView(); $('#mobile-menu').addClass('hidden'); });
-            $('#nav-sign-out-mobile').on('click', (e) => { e.preventDefault(); handleSignOut('Student'); $('#mobile-menu').addClass('hidden'); });
-
+            $('.nav-tutor').removeClass('hidden');
+            // Desktop links for Tutor
+            desktopHtml = `
+                <a href="#" id="nav-tutor-dashboard" class="text-white hover:text-indigo-200 transition">Dashboard</a>
+                <a href="#" id="nav-create-course" class="bg-white text-indigo-700 px-4 py-2 rounded-full font-semibold hover:bg-indigo-100 transition shadow-md">New Course</a>
+                <a href="#" id="nav-sign-out" class="text-white hover:text-indigo-200 transition">Sign Out</a>
+            `;
+            // Mobile links for Tutor
+            mobileHtml = `
+                <a href="#" id="mobile-nav-tutor-dashboard" class="block py-2 px-4 text-white hover:bg-indigo-600">Dashboard</a>
+                <a href="#" id="mobile-nav-create-course" class="block py-2 px-4 text-white hover:bg-indigo-600">New Course</a>
+                <a href="#" id="mobile-nav-sign-out" class="block py-2 px-4 text-white hover:bg-indigo-600">Sign Out</a>
+            `;
+        } else { // Student
+            $('.nav-student').removeClass('hidden');
+            // Desktop links for Student
+            desktopHtml = `
+                <a href="#" id="nav-course-catalog" class="text-white hover:text-indigo-200 transition">Catalog</a>
+                <a href="#" id="nav-my-courses" class="text-white hover:text-indigo-200 transition">My Courses</a>
+                <a href="#" id="nav-sign-out" class="text-white hover:text-indigo-200 transition">Sign Out</a>
+            `;
+            // Mobile links for Student
+            mobileHtml = `
+                <a href="#" id="mobile-nav-course-catalog" class="block py-2 px-4 text-white hover:bg-indigo-600">Course Catalog</a>
+                <a href="#" id="mobile-nav-my-courses" class="block py-2 px-4 text-white hover:bg-indigo-600">My Courses</a>
+                <a href="#" id="mobile-nav-sign-out" class="block py-2 px-4 text-white hover:bg-indigo-600">Sign Out</a>
+            `;
         }
     } else {
-        // Logged Out State (Public View)
-        $('#student-nav').html(`
-            <a href="#" id="view-tutorials-link" class="text-white hover:text-indigo-200 transition font-medium">Browse Catalog</a>
-            <span class="text-indigo-300">|</span>
-            <a href="#" id="student-sign-in" class="text-white hover:text-indigo-200 transition">Student Login</a>
-            <a href="#" id="student-sign-up" class="bg-indigo-500 text-white px-3 py-1 rounded-md hover:bg-indigo-600 transition">Student Sign Up</a>
-        `).show();
-
-        $('#tutor-auth-nav').html(`
-            <span class="text-indigo-300">|</span>
-            <a href="#" id="tutor-sign-in" class="text-white hover:text-indigo-200 transition font-medium">Tutor Login</a>
-            <a href="#" id="tutor-sign-up" class="bg-green-500 text-white px-3 py-1 rounded-md hover:bg-green-600 transition">Tutor Sign Up</a>
-        `).show();
-
-        // Mobile Menu for Public
-        $('#mobile-menu').append(
-            `<a href="#" id="view-tutorials-link-mobile" class="block text-white font-semibold py-2">Browse Catalog</a>
-             <a href="#" id="student-sign-in-mobile" class="block text-white py-2">Student Login</a>
-             <a href="#" id="student-sign-up-mobile" class="block bg-indigo-500 text-white px-3 py-1 rounded-md text-center hover:bg-indigo-600 transition mt-2">Student Sign Up</a>
-             <a href="#" id="tutor-sign-in-mobile" class="block text-white py-2 border-t border-indigo-600 mt-2 pt-2">Tutor Login</a>
-             <a href="#" id="tutor-sign-up-mobile" class="block bg-green-500 text-white px-3 py-1 rounded-md text-center hover:bg-green-600 transition mt-2">Tutor Sign Up</a>`
-        );
-        $('#view-tutorials-link-mobile').on('click', (e) => { e.preventDefault(); loadStudentCourseCatalog(); $('#mobile-menu').addClass('hidden'); });
-        $('#student-sign-in-mobile').on('click', (e) => { e.preventDefault(); loadStudentSignInView(); $('#mobile-menu').addClass('hidden'); });
-        $('#student-sign-up-mobile').on('click', (e) => { e.preventDefault(); loadStudentSignUpView(); $('#mobile-menu').addClass('hidden'); });
-        $('#tutor-sign-in-mobile').on('click', (e) => { e.preventDefault(); loadTutorSignInView(); $('#mobile-menu').addClass('hidden'); });
-        $('#tutor-sign-up-mobile').on('click', (e) => { e.preventDefault(); loadTutorSignUpView(); $('#mobile-menu').addClass('hidden'); });
-    }
-    // Re-attach global handlers since navigation links were replaced
-    attachNavHandlers();
-}
-
-
-// --- 4. Authentication Handlers ---
-
-/**
- * Handles both Student and Tutor Sign-In.
- */
-function handleSignIn(userType, email, password) {
-    $.ajax({
-        url: `${API_BASE_URL}/auth/signin/${userType.toLowerCase()}`,
-        type: 'POST',
-        data: JSON.stringify({ email: email, password: password }),
-        contentType: 'application/json',
-        success: function (user) {
-            // 1. SESSION MANAGEMENT 
-            // Assuming backend returns user object with _id and name
-            localStorage.removeItem(userType === 'Tutor' ? 'loggedInStudent' : 'loggedInTutor');
-            localStorage.setItem(`loggedIn${userType}`, JSON.stringify({ id: user._id, name: user.name }));
-
-            // 2. UI UPDATE & REDIRECT
-            alert(`${userType} sign-in successful! Welcome, ${user.name}.`);
-            updateNavVisibility(userType, true);
-
-            if (userType === 'Tutor') loadTutorDashboardView();
-            else loadStudentCoursesView();
-        },
-        error: function (jqXHR) {
-            console.error(`${userType} Sign-In Failed:`, jqXHR.responseJSON);
-            alert(`Login failed: ${jqXHR.responseJSON ? jqXHR.responseJSON.message : 'Server error.'}`);
-        }
-    });
-}
-
-/**
- * Handles both Student and Tutor Sign-Up.
- */
-function handleSignUp(userType, name, email, password) {
-    $.ajax({
-        url: `${API_BASE_URL}/auth/signup/${userType.toLowerCase()}`,
-        type: 'POST',
-        data: JSON.stringify({ name: name, email: email, password: password }),
-        contentType: 'application/json',
-        success: function () {
-            alert(`${userType} sign-up successful! Please log in.`);
-
-            // REDIRECT TO LOGIN VIEW AFTER SIGNUP
-            if (userType === 'Tutor') loadTutorSignInView();
-            else loadStudentSignInView();
-        },
-        error: function (jqXHR) {
-            console.error(`${userType} Sign-Up Failed:`, jqXHR.responseJSON);
-            alert(`Registration failed: ${jqXHR.responseJSON ? jqXHR.responseJSON.message : 'Server error.'}`);
-        }
-    });
-}
-
-// Handles Sign-Out
-function handleSignOut(userType) {
-    localStorage.removeItem(`loggedIn${userType}`);
-
-    updateNavVisibility('', false);
-    loadStudentCourseCatalog(); // Default landing page after signout
-    alert('You have been signed out.');
-}
-
-
-// --- 5. Course CRUD Handlers (API Logic) ---
-
-/**
- * Handles the submission of the new course form, including file upload.
- * NOTE: This requires a backend (Express/Multer) setup to handle file upload.
- */
-function handleTutorCourseCreation() {
-    const loggedInTutor = getLoggedInUser();
-    if (!loggedInTutor || !loggedInTutor.id) {
-        alert("Tutor must be logged in to create a course.");
-        loadTutorSignInView();
-        return;
+        // Signed out (Guest)
+        $('.nav-signed-out').removeClass('hidden');
+        // Desktop links for Guest
+        desktopHtml = `
+            <a href="#" id="nav-course-catalog" class="text-white hover:text-indigo-200 transition">Course Catalog</a>
+            <a href="#" id="nav-student-auth" class="text-white hover:text-indigo-200 transition">Student Sign In/Up</a>
+            <a href="#" id="nav-tutor-auth" class="bg-green-500 text-white px-4 py-2 rounded-full font-semibold hover:bg-green-600 transition shadow-md">Tutor Sign In</a>
+        `;
+        // Mobile links for Guest
+        mobileHtml = `
+            <a href="#" id="mobile-nav-course-catalog" class="block py-2 px-4 text-white hover:bg-indigo-600">Course Catalog</a>
+            <a href="#" id="mobile-nav-student-auth" class="block py-2 px-4 text-white hover:bg-indigo-600">Student Sign In/Up</a>
+            <a href="#" id="mobile-nav-tutor-auth" class="block py-2 px-4 text-white hover:bg-indigo-600">Tutor Sign In</a>
+        `;
     }
 
-    // 1. Gather Data (Using FormData for files)
-    const formData = new FormData($('#new-course-form')[0]);
-    formData.append('tutorId', loggedInTutor.id);
-
-    // Handle Chapters (requires custom aggregation since they are dynamic inputs)
-    const chapters = [];
-    $('#chapter-list-editor').find('.chapter-row').each(function () {
-        const title = $(this).find('.chapter-title-input').val();
-        const timestamp = $(this).find('.chapter-timestamp-input').val();
-        if (title && timestamp) {
-            chapters.push({ title: title, timestamp: timestamp });
-        }
-    });
-    // Send chapters as a JSON string, which the backend will parse
-    formData.set('chapters', JSON.stringify(chapters));
-
-    // Handle Asset Type selection (CRITICAL FIX AREA)
-    const assetType = $('input[name="assetType"]:checked').val();
-    formData.set('assetType', assetType); // Ensure assetType is set correctly
-
-    if (assetType === 'youtube') {
-        // FIX: Remove the file field if YouTube is selected
-        formData.delete('videoFile'); 
-        
-        // Ensure the YouTube field is present and not empty
-        const url = $('input[name="youtubeUrl"]').val();
-        if (!url) {
-            alert("Please provide a YouTube URL.");
-            return;
-        }
-        // The 'youtubeUrl' field exists in the form data with the full URL.
-    } else { // assetType === 'local'
-        // FIX: Remove the YouTube URL field if local file is selected
-        formData.delete('youtubeUrl'); 
-
-        // Ensure a file is selected
-        if ($('input[name="videoFile"]').prop('required') && $('input[name="videoFile"]')[0].files.length === 0) {
-            alert("Please select a video file for local upload.");
-            return;
-        }
-    }
-
-    // 2. Send Data to the Express Backend (API Call)
-    $.ajax({
-        url: `${API_BASE_URL}/courses/upload`,
-        type: 'POST',
-        data: formData,
-        processData: false,
-        contentType: false,
-        beforeSend: function () {
-            $('#new-course-form button[type="submit"]').prop('disabled', true).text('Uploading...');
-        },
-        success: function (response) {
-            console.log("Course created successfully:", response);
-            alert(`Course "${response.title}" created successfully!`);
-
-            $('#new-course-form')[0].reset();
-            loadTutorDashboardView();
-        },
-        error: function (jqXHR) {
-            console.error("Course creation failed:", jqXHR.responseJSON);
-            alert(`Error creating course: ${jqXHR.responseJSON ? jqXHR.responseJSON.message : 'Server error. Check console.'}`);
-        },
-        complete: function () {
-            $('#new-course-form button[type="submit"]').prop('disabled', false).text('Publish Course');
-        }
-    });
+    // Update the HTML
+    $('#desktop-menu-links').html(desktopHtml);
+    $('#mobile-menu-links').html(mobileHtml);
 }
 
-// Helper function to delete a course
-function deleteCourseApi(courseId) {
-    if (!confirm('Are you sure you want to permanently delete this course?')) return;
+// --- 4. View Rendering Functions ---
 
-    $.ajax({
-        url: `${API_BASE_URL}/courses/${courseId}`,
-        type: 'DELETE',
-        success: function () {
-            alert('Course deleted successfully.');
-            loadTutorCoursesView();
-            loadTutorDashboardView(); // Refresh dashboard stats
-        },
-        error: function (jqXHR) {
-            console.error("Delete failed:", jqXHR.responseJSON);
-            alert(`Error deleting course: ${jqXHR.responseJSON ? jqXHR.responseJSON.message : 'Server error.'}`);
-        }
-    });
+/** Loads the initial landing page from index.html (when signing out). */
+function loadLandingPageView() {
+    clearContentArea();
+    // Re-insert the landing page content from a hidden div or fetch from index.html (assuming it's the default content)
+    // Since index.html has the landing page content initially, we can just reload the page or use a hidden template.
+    // For a smoother SPA experience, we assume the landing page structure is contained in the index.html content initially.
+    // As the default, we will just reload the page to restore the initial state defined in index.html.
+    // If we want to keep it a true SPA, we need a template in index.html to load here.
+    location.reload(); 
 }
 
-// --- 6. Enrollment Handlers ---
+/** Renders the student Sign In view. */
+function loadStudentSignInView() {
+    clearContentArea();
+    const html = `
+        <div class="max-w-md mx-auto my-10 p-8 bg-white rounded-xl shadow-2xl border-t-4 border-indigo-500">
+            <h2 class="text-3xl font-bold text-gray-800 mb-6 text-center">Student Sign In</h2>
+            <form id="student-sign-in-form" class="space-y-6">
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-700">Email Address</label>
+                    <input type="email" id="student-email" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="student-password" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div id="student-sign-in-message" class="text-red-500 text-sm hidden"></div>
+                <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    Sign In
+                </button>
+            </form>
+            <p class="mt-6 text-center text-sm text-gray-600">
+                Don't have an account? 
+                <a href="#" id="link-to-student-sign-up" class="font-medium text-indigo-600 hover:text-indigo-500">Sign Up here</a>
+            </p>
+        </div>
+    `;
+    $contentArea.html(html);
 
-function handleEnrollment(courseId) {
-    const student = getLoggedInUser();
-    if (!student || getLoggedInUserType() !== 'Student') {
-        alert("Please log in as a student to enroll.");
+    // Attach local handlers
+    $('#student-sign-in-form').on('submit', (e) => handleSignIn(e, 'student'));
+    $('#link-to-student-sign-up').on('click', (e) => { e.preventDefault(); loadStudentSignUpView(); });
+}
+
+/** Renders the student Sign Up view. */
+function loadStudentSignUpView() {
+    clearContentArea();
+    const html = `
+        <div class="max-w-md mx-auto my-10 p-8 bg-white rounded-xl shadow-2xl border-t-4 border-indigo-500">
+            <h2 class="text-3xl font-bold text-gray-800 mb-6 text-center">Student Sign Up</h2>
+            <form id="student-sign-up-form" class="space-y-6">
+                <div>
+                    <label for="name" class="block text-sm font-medium text-gray-700">Full Name</label>
+                    <input type="text" id="student-name" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-700">Email Address</label>
+                    <input type="email" id="student-email-up" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="student-password-up" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div id="student-sign-up-message" class="text-red-500 text-sm hidden"></div>
+                <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    Sign Up
+                </button>
+            </form>
+            <p class="mt-6 text-center text-sm text-gray-600">
+                Already have an account? 
+                <a href="#" id="link-to-student-sign-in" class="font-medium text-indigo-600 hover:text-indigo-500">Sign In here</a>
+            </p>
+        </div>
+    `;
+    $contentArea.html(html);
+
+    // Attach local handlers
+    $('#student-sign-up-form').on('submit', (e) => handleSignUp(e, 'student'));
+    $('#link-to-student-sign-in').on('click', (e) => { e.preventDefault(); loadStudentSignInView(); });
+}
+
+/** Renders the tutor Sign In view. */
+function loadTutorSignInView() {
+    clearContentArea();
+    const html = `
+        <div class="max-w-md mx-auto my-10 p-8 bg-white rounded-xl shadow-2xl border-t-4 border-green-500">
+            <h2 class="text-3xl font-bold text-gray-800 mb-6 text-center">Tutor Sign In</h2>
+            <form id="tutor-sign-in-form" class="space-y-6">
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-700">Email Address</label>
+                    <input type="email" id="tutor-email" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500">
+                </div>
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="tutor-password" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500">
+                </div>
+                <div id="tutor-sign-in-message" class="text-red-500 text-sm hidden"></div>
+                <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                    Sign In
+                </button>
+            </form>
+            <p class="mt-6 text-center text-sm text-gray-600">
+                Don't have an account? 
+                <a href="#" id="link-to-tutor-sign-up" class="font-medium text-green-600 hover:text-green-500">Sign Up here</a>
+            </p>
+        </div>
+    `;
+    $contentArea.html(html);
+
+    // Attach local handlers
+    $('#tutor-sign-in-form').on('submit', (e) => handleSignIn(e, 'tutor'));
+    $('#link-to-tutor-sign-up').on('click', (e) => { e.preventDefault(); loadTutorSignUpView(); });
+}
+
+/** Renders the tutor Sign Up view. */
+function loadTutorSignUpView() {
+    clearContentArea();
+    const html = `
+        <div class="max-w-md mx-auto my-10 p-8 bg-white rounded-xl shadow-2xl border-t-4 border-green-500">
+            <h2 class="text-3xl font-bold text-gray-800 mb-6 text-center">Tutor Sign Up</h2>
+            <form id="tutor-sign-up-form" class="space-y-6">
+                <div>
+                    <label for="name" class="block text-sm font-medium text-gray-700">Full Name</label>
+                    <input type="text" id="tutor-name" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500">
+                </div>
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-700">Email Address</label>
+                    <input type="email" id="tutor-email-up" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500">
+                </div>
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="tutor-password-up" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500">
+                </div>
+                <div id="tutor-sign-up-message" class="text-red-500 text-sm hidden"></div>
+                <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                    Sign Up
+                </button>
+            </form>
+            <p class="mt-6 text-center text-sm text-gray-600">
+                Already have an account? 
+                <a href="#" id="link-to-tutor-sign-in" class="font-medium text-green-600 hover:text-green-500">Sign In here</a>
+            </p>
+        </div>
+    `;
+    $contentArea.html(html);
+
+    // Attach local handlers
+    $('#tutor-sign-up-form').on('submit', (e) => handleSignUp(e, 'tutor'));
+    $('#link-to-tutor-sign-in').on('click', (e) => { e.preventDefault(); loadTutorSignInView(); });
+}
+
+/** Renders a single course card. */
+function renderCourseCard(course) {
+    const tutorName = course.tutorId ? course.tutorId.name : 'Unknown Tutor';
+    return `
+        <div data-course-id="${course._id}" class="course-card bg-white rounded-xl shadow-lg hover:shadow-xl transition duration-300 overflow-hidden cursor-pointer border border-gray-200">
+            <div class="p-6">
+                <h3 class="text-xl font-bold text-gray-900 mb-2">${course.title}</h3>
+                <p class="text-sm text-indigo-600 font-semibold mb-3">Tutor: ${tutorName}</p>
+                <p class="text-gray-600 text-sm mb-4 h-12 overflow-hidden">${truncateText(course.description, 80)}</p>
+                <div class="flex items-center text-sm text-gray-600 mb-4">
+                    <span class="mr-3">${renderStarRating(course.averageRating)}</span>
+                    <span class="text-gray-500">(${course.totalReviews || 0} reviews)</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-lg font-bold text-indigo-700">Chapters: ${course.chapters.length}</span>
+                    <button class="view-course-btn bg-indigo-500 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-indigo-600 transition" data-course-id="${course._id}">
+                        View Details
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/** Fetches and renders the full course catalog for students/guests. */
+function loadStudentCourseCatalog() {
+    clearContentArea();
+    $contentArea.html(`
+        <div class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+            <h2 class="text-4xl font-extrabold text-gray-900 mb-8 border-b pb-4">Course Catalog</h2>
+            <div id="course-list-area" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <p class="text-gray-500 col-span-full">Loading courses...</p>
+            </div>
+        </div>
+    `);
+
+    $.get(`${API_BASE_URL}/courses`)
+        .done(function (courses) {
+            const $listArea = $('#course-list-area').empty();
+            if (courses.length === 0) {
+                $listArea.html('<p class="text-gray-500 col-span-full">No courses are available yet.</p>');
+            } else {
+                courses.forEach(course => {
+                    $listArea.append(renderCourseCard(course));
+                });
+                // Attach event listeners to the dynamically generated buttons/cards
+                $('.view-course-btn, .course-card').on('click', function() {
+                    const courseId = $(this).data('course-id');
+                    loadCourseDetailView(courseId);
+                });
+            }
+        })
+        .fail(function () {
+            $('#course-list-area').html('<p class="text-red-500 col-span-full">Error fetching course catalog. Please try again later.</p>');
+        });
+}
+
+/** Fetches and renders the student's enrolled courses. */
+function loadStudentCoursesView() {
+    const studentId = getLoggedInUserId();
+    if (!studentId) {
         loadStudentSignInView();
         return;
     }
 
-    $.ajax({
-        url: `${API_BASE_URL}/enrollments/enroll`,
-        type: 'POST',
-        data: JSON.stringify({ studentId: student.id, courseId: courseId }),
-        contentType: 'application/json',
-        success: function (response) {
-            alert(`Successfully enrolled in "${response.courseTitle}"!`);
-            loadStudentCoursesView();
-        },
-        error: function (jqXHR) {
-            console.error("Enrollment failed:", jqXHR.responseJSON);
-            alert(`Enrollment failed: ${jqXHR.responseJSON ? jqXHR.responseJSON.message : 'Server error.'}`);
-        }
-    });
-}
-
-/**
- * Fetches course data and loads the player view.
- */
-function fetchAndLoadCoursePlayer(courseId) {
-    $('#content-area').html('<div class="text-center p-20"><p class="text-xl text-gray-500">Loading course content...</p></div>');
-
-    $.get(`${API_BASE_URL}/courses/${courseId}`, function (course) {
-        if (!course) {
-            $('#content-area').html('<div class="p-6 text-red-600">Course content not found.</div>');
-            return;
-        }
-
-        // Assuming your backend returns a single asset object nested in course.asset
-        const courseAsset = course.asset;
-        let videoHtml = '';
-        let mediaUrl;
-        const assetUrl = courseAsset ? courseAsset.url : null;
-        const assetType = courseAsset ? courseAsset.type : 'none';
-
-        if (assetType === 'youtube' && assetUrl) {
-            // Assume the backend stores the *ID* or the *URL*. If it's a URL, extract the ID:
-            const videoIdMatch = assetUrl.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|\w+\/|watch\?v=|\/embed\/))([^\s&?#]+)/) || assetUrl.match(/(?:youtu\.be\/)([^\s&?#]+)/);
-            const videoId = videoIdMatch ? videoIdMatch[1] : assetUrl;
-            
-            mediaUrl = `https://www.youtube.com/embed/${videoId}`;
-            videoHtml = `
-                <div class="aspect-w-16 aspect-h-9">
-                    <iframe src="${mediaUrl}" allowfullscreen class="w-full h-full rounded-lg shadow-xl" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>
-                </div>
-            `;
-        } else if (assetType === 'local' && assetUrl) {
-            // CRITICAL FIX: The correct path is just /uploads/filename, 
-            // as configured in the Express static route in server.js.
-            mediaUrl = `${API_BASE_ROOT}/uploads/${assetUrl}`; 
-            videoHtml = `
-                <video controls id="video-player" src="${mediaUrl}" class="w-full h-full rounded-lg shadow-xl" controlsList="nodownload"></video>
-            `;
-        } else {
-            videoHtml = '<div class="p-4 text-orange-600 border border-orange-300 rounded">No video content found for this course.</div>';
-        }
-
-        let chaptersList = '';
-        if (course.chapters && course.chapters.length > 0) {
-            chaptersList = `
-                <h3 class="text-2xl font-semibold mt-8 mb-4">Course Chapters</h3>
-                <ul class="list-disc list-inside space-y-2 text-gray-700">
-                    ${course.chapters.map(ch => `<li><span class="font-medium">${ch.title}</span> (at ${ch.timestamp})</li>`).join('')}
-                </ul>
-            `;
-        }
-
-        $('#content-area').html(`
-            <div class="bg-white p-6 rounded-lg shadow-xl">
-                <h2 class="text-3xl font-bold mb-4">${course.title}</h2>
-                <p class="text-gray-600 mb-6">${course.description}</p>
-                <div class="mb-8">${videoHtml}</div>
-                ${chaptersList}
+    clearContentArea();
+    $contentArea.html(`
+        <div class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+            <h2 class="text-4xl font-extrabold text-gray-900 mb-8 border-b pb-4">My Courses</h2>
+            <div id="my-courses-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <p class="text-gray-500 col-span-full">Loading your enrolled courses...</p>
             </div>
-        `);
-
-        // Autoplay video on supported browsers if the video tag is present
-        if (assetType === 'local' && assetUrl) {
-            document.getElementById('video-player').play();
-        }
-
-    }).fail(function (jqXHR) {
-        console.error("Failed to fetch course:", jqXHR);
-        $('#content-area').html('<div class="p-6 text-red-600">Error connecting to server or fetching course data.</div>');
-    });
-}
-
-
-// --- 7. View Rendering Functions ---
-
-// --- Authentication Views (Tutor & Student) ---
-
-function loadAuthForm(userType, isSignIn) {
-    const formType = isSignIn ? 'Sign In' : 'Sign Up';
-    const otherForm = isSignIn ? 'Sign Up' : 'Sign In';
-    const color = userType === 'Tutor' ? 'green' : 'indigo';
-
-    return `
-        <div class="bg-white p-6 rounded-lg shadow-xl max-w-md mx-auto border-t-4 border-${color}-600">
-            <h2 class="text-2xl font-bold mb-4">${userType} ${formType}</h2>
-            <form id="${userType.toLowerCase()}-auth-form" class="space-y-4">
-                ${isSignIn ? '' : '<div><label class="block text-gray-700">Name</label><input type="text" id="user-name" class="w-full p-2 border border-gray-300 rounded" required></div>'}
-                <div><label class="block text-gray-700">Email</label><input type="email" id="user-email" class="w-full p-2 border border-gray-300 rounded" required></div>
-                <div><label class="block text-gray-700">Password</label><input type="password" id="user-password" class="w-full p-2 border border-gray-300 rounded" required></div>
-                <button type="submit" class="w-full bg-${color}-600 text-white p-2 rounded hover:opacity-90">${formType}</button>
-            </form>
-            <p class="mt-4 text-center text-sm">
-                ${isSignIn ? "Don't have an account?" : "Already have an account?"} 
-                <a href="#" id="go-to-other-form" class="text-${color}-600 hover:underline">${otherForm}</a>
-            </p>
         </div>
-    `;
+    `);
+
+    $.get(`${API_BASE_URL}/enrollments/${studentId}`)
+        .done(function (enrollments) {
+            const $listArea = $('#my-courses-list').empty();
+            if (enrollments.length === 0) {
+                $listArea.html(`
+                    <p class="text-gray-500 col-span-full">You are not currently enrolled in any courses.</p>
+                    <a href="#" id="link-to-catalog" class="text-indigo-600 hover:text-indigo-800 font-semibold col-span-full">Browse the Course Catalog</a>
+                `);
+                $('#link-to-catalog').on('click', (e) => { e.preventDefault(); loadStudentCourseCatalog(); });
+            } else {
+                enrollments.forEach(enrollment => {
+                    const course = enrollment.courseId; // The course data is populated here
+                    if (course) {
+                        const tutorName = course.tutorId ? course.tutorId.name : 'Unknown Tutor';
+                        const cardHtml = `
+                            <div data-course-id="${course._id}" class="my-course-card bg-white rounded-xl shadow-lg hover:shadow-xl transition duration-300 overflow-hidden cursor-pointer border border-indigo-200">
+                                <div class="p-6">
+                                    <h3 class="text-xl font-bold text-gray-900 mb-2">${course.title}</h3>
+                                    <p class="text-sm text-indigo-600 font-semibold mb-3">Tutor: ${tutorName}</p>
+                                    <div class="flex justify-between items-center mb-4">
+                                        <p class="text-sm text-gray-600">Progress: <span class="font-bold">${enrollment.progressPercentage}%</span></p>
+                                        <div class="w-1/2 bg-gray-200 rounded-full h-2.5">
+                                            <div class="bg-indigo-600 h-2.5 rounded-full" style="width: ${enrollment.progressPercentage}%"></div>
+                                        </div>
+                                    </div>
+                                    <button class="view-course-btn bg-indigo-600 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-indigo-700 transition" data-course-id="${course._id}">
+                                        Continue Course
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                        $listArea.append(cardHtml);
+                    }
+                });
+
+                $('.view-course-btn, .my-course-card').on('click', function() {
+                    const courseId = $(this).data('course-id');
+                    loadCourseDetailView(courseId);
+                });
+            }
+        })
+        .fail(function (xhr) {
+            $('#my-courses-list').html(`<p class="text-red-500 col-span-full">Error fetching your courses: ${xhr.responseJSON.message || 'Server error'}</p>`);
+        });
 }
 
-function loadTutorSignInView() {
-    $('#content-area').html(loadAuthForm('Tutor', true));
-    $('#tutor-auth-form').on('submit', (e) => {
-        e.preventDefault();
-        handleSignIn('Tutor', $('#user-email').val(), $('#user-password').val());
-    });
-    $('#go-to-other-form').on('click', (e) => { e.preventDefault(); loadTutorSignUpView(); });
-}
 
-function loadTutorSignUpView() {
-    $('#content-area').html(loadAuthForm('Tutor', false));
-    $('#tutor-auth-form').on('submit', (e) => {
-        e.preventDefault();
-        handleSignUp('Tutor', $('#user-name').val(), $('#user-email').val(), $('#user-password').val());
-    });
-    $('#go-to-other-form').on('click', (e) => { e.preventDefault(); loadTutorSignInView(); });
-}
-
-function loadStudentSignInView() {
-    $('#content-area').html(loadAuthForm('Student', true));
-    $('#student-auth-form').on('submit', (e) => {
-        e.preventDefault();
-        handleSignIn('Student', $('#user-email').val(), $('#user-password').val());
-    });
-    $('#go-to-other-form').on('click', (e) => { e.preventDefault(); loadStudentSignUpView(); });
-}
-
-function loadStudentSignUpView() {
-    $('#content-area').html(loadAuthForm('Student', false));
-    $('#student-auth-form').on('submit', (e) => {
-        e.preventDefault();
-        handleSignUp('Student', $('#user-name').val(), $('#user-email').val(), $('#user-password').val());
-    });
-    $('#go-to-other-form').on('click', (e) => { e.preventDefault(); loadStudentSignInView(); });
-}
-
-
-// --- Tutor Dashboard (API Logic Implemented) ---
-
+/** Fetches and renders the tutor's dashboard with their courses. */
 function loadTutorDashboardView() {
-    const tutor = getLoggedInUser();
-
-    if (!tutor || getLoggedInUserType() !== 'Tutor') {
+    const tutorId = getLoggedInUserId();
+    if (!tutorId) {
         loadTutorSignInView();
         return;
     }
 
-    $('#content-area').html(`
-        <h2 class="text-3xl font-bold text-gray-800 mb-6">👋 Welcome to your Dashboard, ${tutor.name}!</h2>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6" id="dashboard-stats-container">
-            
-            <div id="course-count-card" class="bg-indigo-600 text-white p-6 rounded-lg shadow-xl">
-                <p class="text-sm uppercase opacity-80">Total Courses Published</p>
-                <p class="text-4xl font-extrabold mt-1">...</p>
-                <p class="text-sm mt-3"><a href="#" id="view-my-courses" class="underline hover:text-indigo-200">View/Manage Courses</a></p>
-            </div>
-            
-             <div id="enrollment-count-card" class="bg-green-600 text-white p-6 rounded-lg shadow-xl">
-                <p class="text-sm uppercase opacity-80">Total Student Enrollments</p>
-                <p class="text-4xl font-extrabold mt-1">...</p>
-                <p class="text-sm mt-3">Across all your courses</p>
-            </div>
+    clearContentArea();
+    const tutor = getLoggedInUser();
+    $contentArea.html(`
+        <div class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+            <h2 class="text-4xl font-extrabold text-gray-900 mb-2">Welcome, ${tutor.name} (Tutor Dashboard)</h2>
+            <p class="text-lg text-gray-600 mb-8 border-b pb-4">Manage your published courses and student enrollment.</p>
 
-            <div class="bg-white p-6 rounded-lg shadow-xl border-t-4 border-green-500">
-                <p class="text-xl font-semibold text-gray-800 mb-3">Quick Action</p>
-                <button id="add-new-course" class="w-full bg-green-500 text-white py-2 rounded-md hover:bg-green-600 transition">
-                    + Add New Course Video
+            <div class="flex justify-end mb-6">
+                 <button id="add-new-course-btn" class="bg-green-600 text-white px-6 py-2 rounded-full font-semibold hover:bg-green-700 transition shadow-md">
+                    <i class="fas fa-plus mr-2"></i> Create New Course
                 </button>
             </div>
 
+            <h3 class="text-2xl font-bold text-gray-800 mb-4">Your Courses</h3>
+            <div id="tutor-courses-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <p class="text-gray-500 col-span-full">Loading your courses...</p>
+            </div>
         </div>
     `);
 
-    // API Call to fetch dashboard stats
-    $.get(`${API_BASE_URL}/dashboard/tutor/${tutor.id}`, function (stats) {
-        // Assuming the backend returns { courseCount, totalEnrollments }
-        $('#course-count-card .text-4xl').text(stats.courseCount || 0);
-        $('#enrollment-count-card .text-4xl').text(stats.totalEnrollments || 0);
-    }).fail(() => {
-        $('#course-count-card .text-4xl').text('Error');
-        $('#enrollment-count-card .text-4xl').text('Error');
-    });
+    // Attach handler for the 'Create New Course' button
+    $('#add-new-course-btn').on('click', () => loadCourseCreationView());
 
-    setupTutorDashboardHandlers();
-}
-
-function setupTutorDashboardHandlers() {
-    $('#add-new-course').off('click').on('click', loadCourseUploadView);
-    $('#view-my-courses').off('click').on('click', (e) => {
-        e.preventDefault();
-        loadTutorCoursesView();
-    });
-}
-
-function loadTutorCoursesView() {
-    const tutor = getLoggedInUser();
-    if (!tutor) { loadTutorSignInView(); return; }
-
-    $('#content-area').html(`
-        <h2 class="text-3xl font-bold text-gray-800 mb-6">📝 My Published Courses</h2>
-        <div id="tutor-course-list" class="space-y-4">
-            <p class="text-gray-500">Loading your courses...</p>
-        </div>
-        <button onclick="loadTutorDashboardView()" class="mt-6 bg-indigo-500 text-white px-4 py-2 rounded-md hover:bg-indigo-600 transition">Back to Dashboard</button>
-    `);
-
-    // API Call to get courses for the tutor
-    $.get(`${API_BASE_URL}/courses?tutorId=${tutor.id}`, function (courses) {
-        const listContainer = $('#tutor-course-list');
-        listContainer.empty();
-
-        if (courses.length === 0) {
-            listContainer.html('<p class="text-gray-500 p-4 border rounded-md">You have not published any courses yet. <a href="#" id="add-from-list" class="font-semibold text-indigo-600">Add one now!</a></p>');
-            $('#add-from-list').on('click', (e) => { e.preventDefault(); loadCourseUploadView(); });
-            return;
-        }
-
-        const coursesHtml = courses.map(course => `
-            <div class="flex justify-between items-center p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
-                <div>
-                    <p class="text-lg font-semibold text-gray-900">${course.title}</p>
-                    <p class="text-sm text-gray-500">${course.description ? course.description.substring(0, 70) : ''}...</p>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <span class="text-sm font-medium text-green-600">${course.enrollmentCount || 0} Enrolled</span>
-                    <button data-course-id="${course._id}" data-course-title="${course.title}" class="delete-course-btn bg-red-500 text-white px-3 py-1 rounded-md text-sm hover:bg-red-600 transition">Delete Course</button>
-                </div>
-            </div>
-        `).join('');
-
-        listContainer.html(coursesHtml);
-
-        // Attach deletion handler
-        $('#content-area').off('click', '.delete-course-btn').on('click', '.delete-course-btn', function (e) {
-            e.preventDefault();
-            deleteCourseApi($(this).data('course-id'));
-        });
-    }).fail(() => {
-        // FIX: Improved error message for failed load
-        $('#tutor-course-list').html('<p class="text-red-500">Failed to load courses from the API. Check network and server logs.</p>');
-    });
-}
-
-/**
- * Renders the Course Upload/Creation Form.
- */
-function loadCourseUploadView() {
-    const tutor = getLoggedInUser();
-    if (!tutor) { loadTutorSignInView(); return; }
-
-    // Chapter helper function (dynamic input handling)
-    function createChapterInput(title = '', timestamp = '') {
-        return `
-            <div class="flex space-x-2 items-center mb-2 p-2 bg-gray-50 rounded chapter-row">
-                <input type="text" placeholder="Chapter Title (e.g., Intro to Arrays)" value="${title}" class="chapter-title-input p-2 border border-gray-300 rounded w-1/2">
-                <input type="text" placeholder="Timestamp (e.g., 00:01:30)" value="${timestamp}" class="chapter-timestamp-input p-2 border border-gray-300 rounded w-1/3">
-                <button type="button" class="remove-chapter-btn text-red-500 hover:text-red-700 p-1">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
-            </div>
-        `;
-    }
-
-    $('#content-area').html(`
-        <h2 class="text-3xl font-bold text-gray-800 mb-6">📹 Publish a New Course</h2>
-        <div class="bg-white p-6 rounded-lg shadow-xl max-w-3xl mx-auto border-t-4 border-green-600">
-            <form id="new-course-form" enctype="multipart/form-data" class="space-y-4">
-                
-                <div>
-                    <label class="block text-gray-700 font-medium mb-1">Course Title</label>
-                    <input type="text" name="title" class="w-full p-3 border border-gray-300 rounded focus:ring-green-500 focus:border-green-500" required>
-                </div>
-                
-                <div>
-                    <label class="block text-gray-700 font-medium mb-1">Short Description</label>
-                    <textarea name="description" rows="3" class="w-full p-3 border border-gray-300 rounded focus:ring-green-500 focus:border-green-500" required></textarea>
-                </div>
-                
-                <div class="space-y-4 p-4 border rounded-lg bg-gray-50">
-                    <label class="block text-gray-700 font-medium text-lg">Course Video Content</label>
-                    
-                    <div class="flex items-center space-x-4">
-                        <label for="asset-type-local" class="flex items-center">
-                            <input type="radio" id="asset-type-local" name="assetType" value="local" checked class="form-radio text-green-600">
-                            <span class="ml-2 text-gray-700">Upload Video File</span>
-                        </label>
-                        <label for="asset-type-youtube" class="flex items-center">
-                            <input type="radio" id="asset-type-youtube" name="assetType" value="youtube" class="form-radio text-green-600">
-                            <span class="ml-2 text-gray-700">YouTube Video Link</span>
-                        </label>
-                    </div>
-
-                    <div id="local-upload-field" class="space-y-2">
-                        <label class="block text-gray-700 font-medium mb-1">Video File (MP4, MOV, etc.)</label>
-                        <input type="file" name="videoFile" accept="video/*" class="w-full p-2 border border-gray-300 rounded" required>
-                    </div>
-                    
-                    <div id="youtube-link-field" class="hidden space-y-2">
-                        <label class="block text-gray-700 font-medium mb-1">YouTube Video ID or URL</label>
-                        <input type="text" name="youtubeUrl" placeholder="e.g., dQw4w9WgXcQ or https://youtu.be/dQw4w9WgXcQ" class="w-full p-3 border border-gray-300 rounded">
-                        <p class="text-xs text-gray-500">Note: Use the Video ID or the full link. We will extract the ID.</p>
-                    </div>
-
-                    <div class="space-y-2 pt-4 border-t border-gray-200 mt-4">
-                        <label class="block text-gray-700 font-medium mb-1">Subtitle URL (.vtt or .srt) (Optional)</label>
-                        <input type="url" name="subtitleUrl" placeholder="Paste subtitle URL here (e.g., /subtitles/mycourse.vtt)" class="w-full p-3 border border-gray-300 rounded">
-                    </div>
-                    </div>
-
-                <div class="border p-4 rounded-lg space-y-3">
-                    <h3 class="text-xl font-semibold text-gray-800">Video Chapters (Optional)</h3>
-                    <div id="chapter-list-editor" class="space-y-2">
+    $.get(`${API_BASE_URL}/courses/tutor/${tutorId}`)
+        .done(function (courses) {
+            const $listArea = $('#tutor-courses-list').empty();
+            if (courses.length === 0) {
+                $listArea.html('<p class="text-gray-500 col-span-full">You have not published any courses yet.</p>');
+            } else {
+                courses.forEach(course => {
+                    const cardHtml = `
+                        <div class="bg-white rounded-xl shadow-lg border-t-4 border-green-500 p-6">
+                            <h3 class="text-xl font-bold text-gray-900 mb-2">${course.title}</h3>
+                            <p class="text-gray-600 text-sm mb-4">${truncateText(course.description, 80)}</p>
+                            <div class="text-sm text-gray-700 mb-4 space-y-1">
+                                <p><strong><i class="fas fa-video mr-2"></i>Chapters:</strong> ${course.chapters.length}</p>
+                                <p><strong><i class="fas fa-users mr-2"></i>Enrollments:</strong> <span id="enrollment-count-${course._id}">${course.enrollmentCount || 0}</span></p>
+                                <p><strong><i class="fas fa-star mr-2"></i>Rating:</strong> ${renderStarRating(course.averageRating)} (${course.totalReviews || 0})</p>
+                            </div>
+                            <div class="flex space-x-3 mt-4">
+                                <button class="manage-course-btn bg-green-500 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-green-600 transition" data-course-id="${course._id}">
+                                    Manage Course
+                                </button>
+                                <button class="delete-course-btn bg-red-500 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-red-600 transition" data-course-id="${course._id}">
+                                    Delete
+                                </button>
+                            </div>
                         </div>
-                    <button type="button" id="add-chapter-btn" class="text-sm text-green-600 hover:text-green-700 font-medium flex items-center">
-                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-                        Add Chapter
+                    `;
+                    $listArea.append(cardHtml);
+                });
+
+                $('.manage-course-btn').on('click', function() {
+                    const courseId = $(this).data('course-id');
+                    loadTutorView(courseId); // Use loadTutorView for the full management view
+                });
+                $('.delete-course-btn').on('click', function() {
+                    const courseId = $(this).data('course-id');
+                    if (confirm('Are you sure you want to delete this course? This action cannot be undone.')) {
+                        handleCourseDeletion(courseId);
+                    }
+                });
+            }
+        })
+        .fail(function (xhr) {
+            $('#tutor-courses-list').html(`<p class="text-red-500 col-span-full">Error fetching your courses: ${xhr.responseJSON.message || 'Server error'}</p>`);
+        });
+}
+
+/** Renders the form for a tutor to create a new course. */
+function loadCourseCreationView() {
+    clearContentArea();
+    const html = `
+        <div class="max-w-4xl mx-auto my-10 p-8 bg-white rounded-xl shadow-2xl border-t-4 border-green-500">
+            <h2 class="text-3xl font-bold text-gray-800 mb-6 border-b pb-4">Create New Course</h2>
+            <form id="course-creation-form" class="space-y-6">
+                <div class="border border-gray-200 p-4 rounded-lg">
+                    <h4 class="text-xl font-semibold mb-3 text-gray-700">1. Course Details</h4>
+                    <div>
+                        <label for="course-title" class="block text-sm font-medium text-gray-700">Course Title</label>
+                        <input type="text" id="course-title" name="title" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm">
+                    </div>
+                    <div>
+                        <label for="course-description" class="block text-sm font-medium text-gray-700 mt-4">Description</label>
+                        <textarea id="course-description" name="description" rows="4" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"></textarea>
+                    </div>
+                </div>
+
+                <div class="border border-gray-200 p-4 rounded-lg">
+                    <h4 class="text-xl font-semibold mb-3 text-gray-700">2. Course Video Asset</h4>
+                    <div class="flex space-x-4 mb-4">
+                        <label class="inline-flex items-center">
+                            <input type="radio" name="asset-type" value="local" checked class="form-radio text-green-600 h-4 w-4">
+                            <span class="ml-2 text-gray-700">Local Video File (.mp4)</span>
+                        </label>
+                        <label class="inline-flex items-center">
+                            <input type="radio" name="asset-type" value="youtube" class="form-radio text-green-600 h-4 w-4">
+                            <span class="ml-2 text-gray-700">YouTube Embed URL</span>
+                        </label>
+                    </div>
+                    
+                    <div id="local-upload-area">
+                        <label for="course-video-file" class="block text-sm font-medium text-gray-700">Upload Video File</label>
+                        <input type="file" id="course-video-file" name="videoFile" accept="video/mp4" class="mt-1 block w-full text-sm text-gray-500">
+                        <p class="text-xs text-gray-500 mt-1">Maximum file size is typically limited by server configuration (e.g., 25MB).</p>
+                    </div>
+
+                    <div id="youtube-url-area" class="hidden">
+                        <label for="youtube-url" class="block text-sm font-medium text-gray-700">YouTube Video URL</label>
+                        <input type="text" id="youtube-url" name="youtubeUrl" placeholder="e.g., https://www.youtube.com/watch?v=dQw4w9WgXcQ" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm">
+                    </div>
+                </div>
+
+                <div class="border border-gray-200 p-4 rounded-lg">
+                    <h4 class="text-xl font-semibold mb-3 text-gray-700">3. Chapters / Outline</h4>
+                    <div id="chapters-container" class="space-y-4">
+                        <div class="chapter-item flex space-x-2 p-2 bg-gray-50 rounded-md border">
+                            <span class="chapter-number font-bold text-gray-600 pt-2">1.</span>
+                            <input type="text" placeholder="Chapter Title" class="chapter-title flex-grow px-3 py-2 border border-gray-300 rounded-md text-sm">
+                            <button type="button" class="remove-chapter-btn bg-red-100 text-red-600 px-3 py-1 rounded-md text-sm hover:bg-red-200" title="Remove Chapter" disabled>
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="button" id="add-chapter-btn" class="mt-4 bg-indigo-500 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-indigo-600 transition">
+                        <i class="fas fa-plus mr-1"></i> Add Chapter
                     </button>
                 </div>
 
-                <button type="submit" class="w-full bg-green-600 text-white p-3 rounded-md font-semibold hover:bg-green-700 transition shadow-lg">
+                <div id="course-creation-message" class="text-red-500 text-sm hidden"></div>
+                <button type="submit" id="submit-course-btn" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
                     Publish Course
                 </button>
             </form>
         </div>
-    `);
+    `;
+    $contentArea.html(html);
 
-    // 2. Attach Dynamic Handlers
-    // Asset Type Toggle
-    $('input[name="assetType"]').on('change', function () {
+    // Initial Chapter button state
+    $('.remove-chapter-btn').prop('disabled', $('#chapters-container .chapter-item').length <= 1);
+
+    // Attach local handlers
+    $('input[name="asset-type"]').on('change', function() {
         if ($(this).val() === 'local') {
-            $('#local-upload-field').show().find('input').prop('required', true);
-            $('#youtube-link-field').hide().find('input').prop('required', false).val(''); // Clear URL when switching
+            $('#local-upload-area').removeClass('hidden');
+            $('#youtube-url-area').addClass('hidden');
         } else {
-            $('#local-upload-field').hide().find('input').prop('required', false).val(''); // Clear file when switching
-            $('#youtube-link-field').show().find('input').prop('required', true);
+            $('#local-upload-area').addClass('hidden');
+            $('#youtube-url-area').removeClass('hidden');
         }
     });
 
-    // Chapter Management
-    $('#add-chapter-btn').on('click', function () {
-        $('#chapter-list-editor').append(createChapterInput());
+    $('#add-chapter-btn').on('click', handleChapterAdd);
+    $('#chapters-container').on('click', '.remove-chapter-btn', handleChapterRemove);
+
+    $('#course-creation-form').on('submit', handleCourseCreation);
+
+    // Run once to fix chapter numbers
+    updateChapterNumbers();
+}
+
+
+/** Loads the detailed view for a single course (used by both Students/Guests and Tutors). */
+function loadCourseDetailView(courseId) {
+    clearContentArea();
+    $contentArea.html('<div class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8"><p class="text-gray-500">Loading course details...</p></div>');
+
+    const loggedInUserType = getLoggedInUserType();
+    const loggedInUserId = getLoggedInUserId();
+
+    // 1. Fetch Course Details, Tutor, and Enrollment Status (if student/tutor)
+    const courseUrl = `${API_BASE_URL}/courses/${courseId}`;
+    const enrollmentUrl = loggedInUserId && loggedInUserType === 'Student' ? `${API_BASE_URL}/enrollments/${loggedInUserId}/${courseId}` : null;
+    const commentsUrl = `${API_BASE_URL}/comments/${courseId}`;
+
+    const fetchPromises = [
+        $.get(courseUrl),
+        enrollmentUrl ? $.get(enrollmentUrl).fail(function(xhr) { if (xhr.status !== 404) console.error("Error fetching enrollment:", xhr); return null; }) : $.Deferred().resolve(null),
+        $.get(commentsUrl),
+    ];
+
+    $.when(...fetchPromises)
+        .done(function (courseResponse, enrollmentResponse, commentsResponse) {
+            const course = courseResponse[0] || courseResponse;
+            const enrollment = enrollmentResponse ? (enrollmentResponse[0] || enrollmentResponse) : null;
+            const comments = commentsResponse[0] || commentsResponse;
+
+            // Determine access level
+            const isTutor = loggedInUserType === 'Tutor' && course.tutorId._id === loggedInUserId;
+            const isStudent = loggedInUserType === 'Student';
+            const isEnrolled = !!enrollment;
+
+            renderCourseDetail(course, isEnrolled, isTutor, isStudent, comments);
+            setupPlayerHandlers(course, isEnrolled || isTutor);
+
+        })
+        .fail(function (xhr, status, error) {
+            $contentArea.html(`<div class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+                <h2 class="text-3xl font-bold text-red-600 mb-4">Error</h2>
+                <p class="text-gray-600">Could not load course details: ${xhr.responseJSON?.message || error}.</p>
+            </div>`);
+        });
+}
+
+
+/** Renders the Tutor's management view for a specific course. */
+function loadTutorView(courseId) {
+    // This function will re-use the loadCourseDetailView logic but ensure the tutor controls are visible.
+    // Since loadCourseDetailView handles the tutor check (isTutor), we can simply call it.
+    loadCourseDetailView(courseId);
+    // Note: If you had dedicated Tutor-only forms (e.g., chapter editing), you would add them here.
+}
+
+
+/** Builds the main course detail HTML. */
+function renderCourseDetail(course, isEnrolled, isTutor, isStudent, comments) {
+    const courseAssetUrl = getAssetUrl(course.asset);
+    const tutorName = course.tutorId ? course.tutorId.name : 'Unknown Tutor';
+    const canAccessVideo = isEnrolled || isTutor;
+
+    let playerHtml = '';
+    let playerWarning = '';
+
+    // A. Player Logic
+    if (canAccessVideo) {
+        if (course.asset.type === 'youtube') {
+            playerHtml = `
+                <div class="aspect-w-16 aspect-h-9">
+                    <iframe id="course-video-player" width="100%" height="auto" 
+                        src="${courseAssetUrl}"
+                        frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen>
+                    </iframe>
+                </div>
+            `;
+        } else { // local file
+            playerHtml = `
+                <video id="course-video-player" width="100%" controls class="rounded-lg shadow-xl">
+                    <source src="${courseAssetUrl}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+            `;
+        }
+    } else {
+        playerWarning = `
+            <div class="p-8 bg-gray-100 rounded-lg text-center">
+                <i class="fas fa-lock text-4xl text-indigo-500 mb-4"></i>
+                <p class="text-lg font-semibold text-gray-700">Video content is for enrolled students only.</p>
+                ${isStudent ? '' : '<p class="text-sm text-gray-500">Please sign in as a student to enroll.</p>'}
+            </div>
+        `;
+    }
+
+    // B. Action Button Logic
+    let actionButtonHtml = '';
+    if (isTutor) {
+        actionButtonHtml = `
+            <div class="space-y-3">
+                <button id="tutor-edit-course-btn" class="w-full bg-green-500 text-white px-6 py-3 rounded-lg text-lg font-semibold hover:bg-green-600 transition shadow-md">
+                    <i class="fas fa-edit mr-2"></i> Manage/Edit Course
+                </button>
+                <button id="tutor-delete-course-btn" class="w-full bg-red-500 text-white px-6 py-3 rounded-lg text-lg font-semibold hover:bg-red-600 transition shadow-md">
+                    <i class="fas fa-trash-alt mr-2"></i> Delete Course
+                </button>
+            </div>
+        `;
+    } else if (isStudent && !isEnrolled) {
+        actionButtonHtml = `
+            <button id="enroll-course-btn" class="w-full bg-indigo-600 text-white px-6 py-3 rounded-lg text-lg font-semibold hover:bg-indigo-700 transition shadow-md" data-course-id="${course._id}">
+                <i class="fas fa-hand-pointer mr-2"></i> Enroll Now (Free)
+            </button>
+        `;
+    } else if (isStudent && isEnrolled) {
+        actionButtonHtml = `
+            <div class="p-3 bg-indigo-50 rounded-lg text-center">
+                <i class="fas fa-check-circle text-indigo-600 mr-2"></i> 
+                <span class="font-semibold text-indigo-700">You are Enrolled!</span>
+                <p class="text-sm text-gray-500 mt-1">Start watching the video and track your progress.</p>
+            </div>
+        `;
+    } else {
+        actionButtonHtml = `
+            <div class="p-3 bg-gray-100 rounded-lg text-center">
+                <p class="font-semibold text-gray-700">Sign in as a Student to Enroll</p>
+            </div>
+        `;
+    }
+
+    // C. Chapters List
+    const chaptersHtml = course.chapters.map((chapter, index) => `
+        <li class="p-3 border-b border-gray-100 last:border-b-0">
+            <a href="#" class="chapter-link block hover:bg-indigo-50 rounded-md p-2 transition" data-chapter-index="${index}" data-timestamp="${chapter.timestamp || '0:00'}">
+                <span class="font-bold text-indigo-700 mr-2">${index + 1}.</span>
+                <span class="text-gray-900">${chapter.title}</span>
+                <span class="text-sm text-gray-500 float-right">${chapter.timestamp || ''}</span>
+            </a>
+        </li>
+    `).join('');
+
+    // D. Comments List
+    let commentsListHtml = '';
+    if (comments && comments.length > 0) {
+        commentsListHtml = comments.map(comment => {
+            const reviewerName = comment.studentId ? comment.studentId.name : 'Anonymous Student';
+            const deleteButton = (isTutor && loggedInUserType === 'Tutor') ? 
+                `<button class="delete-comment-btn text-red-500 hover:text-red-700 text-sm ml-4" data-comment-id="${comment._id}" title="Delete Comment"><i class="fas fa-times-circle"></i></button>` : '';
+
+            return `
+                <div class="p-4 border-b last:border-b-0 bg-gray-50 rounded-md mb-3">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-semibold text-gray-800">${reviewerName}</span>
+                        <span class="text-xs text-gray-500">${new Date(comment.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    <div class="text-sm mb-2">${renderStarRating(comment.rating)}</div>
+                    <p class="text-gray-700">${comment.text}</p>
+                    ${deleteButton}
+                </div>
+            `;
+        }).join('');
+    } else {
+        commentsListHtml = '<p class="text-gray-500 italic">No reviews or comments yet. Be the first!</p>';
+    }
+    
+    // E. Comment Submission Form
+    let commentFormHtml = '';
+    if (isStudent && isEnrolled) {
+        commentFormHtml = `
+            <div class="mt-8 border-t pt-4">
+                <h4 class="text-xl font-bold mb-4 text-gray-800">Leave a Review</h4>
+                <form id="comment-submission-form" data-course-id="${course._id}">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Your Rating</label>
+                        <div id="rating-stars" class="flex space-x-1 text-2xl cursor-pointer">
+                            <i class="far fa-star text-yellow-500 hover:text-yellow-600" data-rating="1"></i>
+                            <i class="far fa-star text-yellow-500 hover:text-yellow-600" data-rating="2"></i>
+                            <i class="far fa-star text-yellow-500 hover:text-yellow-600" data-rating="3"></i>
+                            <i class="far fa-star text-yellow-500 hover:text-yellow-600" data-rating="4"></i>
+                            <i class="far fa-star text-yellow-500 hover:text-yellow-600" data-rating="5"></i>
+                        </div>
+                        <input type="hidden" id="comment-rating" name="rating" value="0" required>
+                    </div>
+                    <div class="mb-4">
+                        <label for="comment-text" class="block text-sm font-medium text-gray-700">Your Comment</label>
+                        <textarea id="comment-text" name="text" rows="3" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"></textarea>
+                    </div>
+                    <div id="comment-message" class="text-red-500 text-sm hidden mb-4"></div>
+                    <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-indigo-700 transition">
+                        Submit Review
+                    </button>
+                </form>
+            </div>
+        `;
+    } else if (isStudent && !isEnrolled) {
+        commentFormHtml = `
+            <div class="mt-8 p-4 bg-gray-100 rounded-lg text-center">
+                <p class="text-gray-600">You must be enrolled in this course to leave a review.</p>
+            </div>
+        `;
+    }
+
+
+    // F. Final HTML Assembly
+    const finalHtml = `
+        <div class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+            <div class="lg:grid lg:grid-cols-3 lg:gap-10">
+                
+                <div class="lg:col-span-2 space-y-8">
+                    <h1 class="text-4xl font-extrabold text-gray-900">${course.title}</h1>
+                    <p class="text-lg text-indigo-600 font-semibold mb-6">Tutor: ${tutorName}</p>
+
+                    <div class="video-player-area">
+                        ${playerWarning || playerHtml}
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl shadow-lg border">
+                        <h3 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Course Chapters (${course.chapters.length})</h3>
+                        <ul id="chapter-list-nav" class="divide-y divide-gray-100">
+                            ${chaptersHtml}
+                        </ul>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl shadow-lg border">
+                        <h3 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Course Description</h3>
+                        <p class="text-gray-700 whitespace-pre-wrap">${course.description}</p>
+                    </div>
+
+                </div>
+
+                <div class="lg:col-span-1 space-y-8 mt-10 lg:mt-0">
+                    
+                    <div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 ${isTutor ? 'border-green-500' : 'border-indigo-500'}">
+                        <p class="text-sm font-semibold text-gray-500 mb-2">Course Status</p>
+                        <div class="text-3xl font-bold text-gray-900 mb-4">
+                            <span class="text-indigo-600">${course.enrollmentCount || 0}</span> Enrolled
+                        </div>
+                        <div class="flex items-center text-sm text-gray-600 mb-6">
+                            ${renderStarRating(course.averageRating)}
+                            <span class="ml-2 text-gray-500">(${course.totalReviews || 0} reviews)</span>
+                        </div>
+                        ${actionButtonHtml}
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl shadow-lg border">
+                        <h3 class="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Student Reviews</h3>
+                        <div id="comments-list-area">
+                            ${commentsListHtml}
+                        </div>
+                        ${commentFormHtml}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    $contentArea.html(finalHtml);
+    
+    // Attach general handlers for course detail
+    $('#enroll-course-btn').on('click', (e) => handleEnrollment(e, course._id));
+    $('#comment-submission-form').on('submit', handleCommentSubmission);
+    $('#tutor-delete-course-btn').on('click', () => {
+        if (confirm('Are you absolutely sure you want to delete this course and all associated enrollments/comments?')) {
+            handleCourseDeletion(course._id);
+        }
+    });
+    // Re-call detail view for edit/manage button to simply refresh (or point to creation form later)
+    $('#tutor-edit-course-btn').on('click', () => loadTutorDashboardView()); 
+    $('#comments-list-area').on('click', '.delete-comment-btn', function() {
+        const commentId = $(this).data('comment-id');
+        if (confirm('Are you sure you want to delete this comment?')) {
+            handleCommentDeletion(commentId, course._id);
+        }
     });
 
-    // Use delegation for removing chapters
-    $('#chapter-list-editor').off('click', '.remove-chapter-btn').on('click', '.remove-chapter-btn', function () {
-        $(this).closest('.chapter-row').remove();
+    // Star rating handler
+    $('#rating-stars i').on('mouseover', function() {
+        const rating = $(this).data('rating');
+        $('#rating-stars i').each(function(index) {
+            const $star = $(this);
+            if (index < rating) {
+                $star.removeClass('far').addClass('fas');
+            } else {
+                $star.removeClass('fas').addClass('far');
+            }
+        });
+    }).on('click', function() {
+        const rating = $(this).data('rating');
+        $('#comment-rating').val(rating);
+        // Persist the clicked rating
+        $('#rating-stars i').removeClass('fas far').addClass('far');
+        $('#rating-stars i').slice(0, rating).removeClass('far').addClass('fas');
+    }).on('mouseout', function() {
+        // Reset to selected rating
+        const selectedRating = parseInt($('#comment-rating').val());
+        $('#rating-stars i').removeClass('fas far').addClass('far');
+        $('#rating-stars i').slice(0, selectedRating).removeClass('far').addClass('fas');
     });
+}
 
-    // Form Submission
-    $('#new-course-form').off('submit').on('submit', function (e) {
+/** Sets up video player and chapter navigation handlers. */
+function setupPlayerHandlers(course, isEnabled) {
+    if (!isEnabled) return; // Only set up if enrolled or tutor
+
+    const videoPlayer = document.getElementById('course-video-player');
+    
+    // Convert a timestamp string (e.g., "1:35") into seconds
+    function timestampToSeconds(timestamp) {
+        if (!timestamp) return 0;
+        const parts = timestamp.split(':').map(Number).reverse(); // [S, M, H]
+        let seconds = 0;
+        if (parts.length >= 1) seconds += parts[0]; // Seconds
+        if (parts.length >= 2) seconds += parts[1] * 60; // Minutes
+        if (parts.length >= 3) seconds += parts[2] * 3600; // Hours
+        return seconds;
+    }
+
+    // Attach click handler to all chapter links using delegation
+    $('#chapter-list-nav').on('click', '.chapter-link', function(e) {
         e.preventDefault();
-        handleTutorCourseCreation();
+        
+        const timestamp = $(this).data('timestamp');
+        const seekTime = timestampToSeconds(timestamp);
+        
+        if (videoPlayer) {
+            videoPlayer.currentTime = seekTime;
+            if (videoPlayer.paused) {
+                videoPlayer.play(); // Auto-play after seeking
+            }
+        }
+        
+        // Optional: Highlight the active chapter link
+        $('#chapter-list-nav .chapter-link').removeClass('bg-indigo-100');
+        $(this).addClass('bg-indigo-100');
     });
 }
 
 
-// --- Student Catalog & Enrolled Courses (API Logic Implemented) ---
+// --- 5. Course Management Helpers (Chapter Management) ---
 
-function loadStudentCourseCatalog() {
-    const student = getLoggedInUser();
-    const studentId = student ? student.id : null;
+/** Helper to ensure chapter numbers are correct. */
+function updateChapterNumbers() {
+    $('#chapters-container .chapter-item').each(function(index) {
+        $(this).find('.chapter-number').text(`${index + 1}.`);
+        // Enable removal for all chapters except the first one
+        $(this).find('.remove-chapter-btn').prop('disabled', index === 0);
+    });
+}
 
-    $('#content-area').html(`
-        <h2 class="text-3xl font-bold mb-6 text-gray-800">📚 Course Catalog</h2>
-        <div id="course-catalog-list" class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <p class="text-gray-500 col-span-3">Fetching available courses...</p>
+/** Adds a new chapter field to the course creation form. */
+function handleChapterAdd() {
+    const chapterCount = $('#chapters-container .chapter-item').length;
+    const newChapterHtml = `
+        <div class="chapter-item flex space-x-2 p-2 bg-gray-50 rounded-md border">
+            <span class="chapter-number font-bold text-gray-600 pt-2">${chapterCount + 1}.</span>
+            <input type="text" placeholder="Chapter Title" class="chapter-title flex-grow px-3 py-2 border border-gray-300 rounded-md text-sm" required>
+            <input type="text" placeholder="Timestamp (e.g., 0:00)" class="chapter-timestamp flex-grow-0 w-32 px-3 py-2 border border-gray-300 rounded-md text-sm" value="0:00">
+            <button type="button" class="remove-chapter-btn bg-red-100 text-red-600 px-3 py-1 rounded-md text-sm hover:bg-red-200" title="Remove Chapter">
+                <i class="fas fa-trash"></i>
+            </button>
         </div>
-    `);
+    `;
+    $('#chapters-container').append(newChapterHtml);
+    updateChapterNumbers();
+}
 
-    // API Call to get all courses (if logged in, append studentId to check enrollment status)
-    $.get(`${API_BASE_URL}/courses/all${studentId ? `?studentId=${studentId}` : ''}`, function (courses) {
-        const listContainer = $('#course-catalog-list');
-        listContainer.empty();
+/** Removes a chapter field from the course creation form. */
+function handleChapterRemove(e) {
+    e.preventDefault();
+    $(this).closest('.chapter-item').remove();
+    updateChapterNumbers();
+}
 
-        if (courses.length === 0) {
-            listContainer.html('<p class="text-gray-600 col-span-3">No courses available yet. Check back soon!</p>');
+// --- 6. Form Submission Handlers (Sign In/Up) ---
+
+/** Handles the sign-in process for both students and tutors. */
+function handleSignIn(e, role) {
+    e.preventDefault();
+    const email = $(`#${role}-email`).val();
+    const password = $(`#${role}-password`).val();
+    const $message = $(`#${role}-sign-in-message`);
+
+    $message.hide().text('');
+
+    $.ajax({
+        url: `${API_BASE_URL}/users/signin`,
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ email, password, role }),
+        success: function(user) {
+            // Store user data in localStorage
+            localStorage.setItem(`loggedIn${role.charAt(0).toUpperCase() + role.slice(1)}`, JSON.stringify(user));
+            
+            // Redirect to appropriate dashboard/view
+            clearContentArea();
+            updateNavVisibility(role.charAt(0).toUpperCase() + role.slice(1), true);
+
+            if (role === 'tutor') {
+                loadTutorDashboardView();
+            } else {
+                loadStudentCoursesView();
+            }
+        },
+        error: function(xhr) {
+            const message = xhr.responseJSON ? xhr.responseJSON.message : 'An unknown sign-in error occurred.';
+            $message.text(message).show();
+        }
+    });
+}
+
+/** Handles the sign-up process for both students and tutors. */
+function handleSignUp(e, role) {
+    e.preventDefault();
+    const name = $(`#${role}-name`).val();
+    const email = $(`#${role}-email-up`).val();
+    const password = $(`#${role}-password-up`).val();
+    const $message = $(`#${role}-sign-up-message`);
+
+    $message.hide().text('');
+
+    $.ajax({
+        url: `${API_BASE_URL}/users/signup`,
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ name, email, password, role }),
+        success: function(user) {
+            // Sign-up successful, now automatically sign them in
+            localStorage.setItem(`loggedIn${role.charAt(0).toUpperCase() + role.slice(1)}`, JSON.stringify(user));
+            
+            // Redirect to appropriate dashboard/view
+            clearContentArea();
+            updateNavVisibility(role.charAt(0).toUpperCase() + role.slice(1), true);
+
+            if (role === 'tutor') {
+                loadTutorDashboardView();
+            } else {
+                loadStudentCoursesView();
+            }
+        },
+        error: function(xhr) {
+            const message = xhr.responseJSON ? xhr.responseJSON.message : 'An unknown sign-up error occurred.';
+            $message.text(message).show();
+        }
+    });
+}
+
+// --- 7. Course API Handlers ---
+
+/** Handles the submission of the new course form. */
+function handleCourseCreation(e) {
+    e.preventDefault();
+
+    const tutorId = getLoggedInUserId();
+    if (!tutorId) {
+        alert('You must be signed in as a Tutor to create a course.');
+        loadTutorSignInView();
+        return;
+    }
+
+    const $form = $('#course-creation-form');
+    const $message = $('#course-creation-message');
+    $message.hide().text('');
+    $('#submit-course-btn').prop('disabled', true).text('Publishing...');
+
+    const title = $('#course-title').val();
+    const description = $('#course-description').val();
+    const assetType = $('input[name="asset-type"]:checked').val();
+    const videoFile = $('#course-video-file')[0].files[0];
+    const youtubeUrl = $('#youtube-url').val();
+    
+    // 1. Collect Chapters
+    const chapters = [];
+    let isValidChapters = true;
+    $('#chapters-container .chapter-item').each(function() {
+        const title = $(this).find('.chapter-title').val().trim();
+        const timestamp = $(this).find('.chapter-timestamp').val().trim() || '0:00'; // Default to 0:00
+        if (title) {
+            chapters.push({ title, timestamp });
+        } else {
+            isValidChapters = false;
+        }
+    });
+
+    if (!isValidChapters) {
+        $message.text('All chapters must have a title.').show();
+        $('#submit-course-btn').prop('disabled', false).text('Publish Course');
+        return;
+    }
+
+
+    // 2. Prepare FormData (for file uploads) or JSON (for YouTube URL)
+    let postData;
+    let url = `${API_BASE_URL}/courses`;
+    let contentType = 'application/json'; // Default for JSON, or false for FormData
+
+    if (assetType === 'local') {
+        if (!videoFile) {
+            $message.text('Please select a video file or choose YouTube URL.').show();
+            $('#submit-course-btn').prop('disabled', false).text('Publish Course');
             return;
         }
 
-        courses.forEach(course => {
-            // Note: isEnrolled flag comes from the backend if studentId was passed
-            const isEnrolled = course.isEnrolled || false;
-            const buttonText = isEnrolled ? 'View Course' : (studentId ? 'Enroll Now' : 'Login to Enroll');
-            const buttonClass = isEnrolled ? 'bg-green-600 hover:bg-green-700' : 'bg-indigo-600 hover:bg-indigo-700';
+        postData = new FormData();
+        postData.append('tutorId', tutorId);
+        postData.append('title', title);
+        postData.append('description', description);
+        postData.append('assetType', 'local');
+        postData.append('videoFile', videoFile);
+        postData.append('chapters', JSON.stringify(chapters)); // Send chapters as a JSON string
 
-            listContainer.append(`
-                <div class="bg-white p-4 rounded-lg shadow-md hover:shadow-xl transition course-card" data-id="${course._id}">
-                    <h3 class="text-xl font-semibold text-indigo-700">${course.title}</h3>
-                    <p class="text-gray-600 text-sm mt-1">Tutor: ${course.tutor ? course.tutor.name : 'N/A'}</p>
-                    <p class="text-gray-600 text-sm mt-1">${course.description ? course.description.substring(0, 100) : 'No description'}...</p>
-                    <p class="text-xs text-gray-500 mt-2">${course.enrollmentCount || 0} students enrolled</p>
-                    <button class="action-btn mt-3 text-white px-3 py-1 text-sm rounded ${buttonClass}" 
-                        data-id="${course._id}" data-action="${isEnrolled ? 'view' : (studentId ? 'enroll' : 'login')}">${buttonText}</button>
-                </div>
-            `);
+        contentType = false; // Important for file upload with FormData
+    } else { // youtube
+        if (!youtubeUrl) {
+            $message.text('Please enter a YouTube URL.').show();
+            $('#submit-course-btn').prop('disabled', false).text('Publish Course');
+            return;
+        }
+        
+        // Extract the YouTube ID (a common requirement for embeds)
+        // A simple pattern for watch?v=ID or youtu.be/ID
+        const youtubeIdMatch = youtubeUrl.match(/(?:v=|youtu\.be\/|embed\/)([^&?]+)/i);
+        const youtubeId = youtubeIdMatch ? youtubeIdMatch[1] : null;
+
+        if (!youtubeId) {
+             $message.text('Invalid YouTube URL format. Please ensure it contains the video ID.').show();
+             $('#submit-course-btn').prop('disabled', false).text('Publish Course');
+             return;
+        }
+        
+        // Construct the embed URL
+        const embedUrl = `https://www.youtube.com/embed/${youtubeId}`;
+
+        postData = JSON.stringify({
+            tutorId,
+            title,
+            description,
+            asset: { type: 'youtube', url: embedUrl },
+            chapters
         });
+        contentType = 'application/json';
+    }
 
-        // Attach handlers
-        listContainer.off('click', '.action-btn').on('click', '.action-btn', function () {
-            const courseId = $(this).data('id');
-            const action = $(this).data('action');
 
-            if (action === 'enroll') {
-                handleEnrollment(courseId);
-            } else if (action === 'view') {
-                fetchAndLoadCoursePlayer(courseId);
-            } else if (action === 'login') {
-                loadStudentSignInView();
-            }
-        });
-    }).fail(() => {
-        $('#course-catalog-list').html('<p class="text-red-500 col-span-3">Failed to load courses from the API.</p>');
+    // 3. Send AJAX request
+    $.ajax({
+        url: url,
+        method: 'POST',
+        data: postData,
+        contentType: contentType,
+        processData: contentType === false ? false : undefined, // Important for FormData
+        success: function(response) {
+            alert('Course published successfully!');
+            // Redirect to the new course's management view
+            loadTutorView(response.course._id); 
+        },
+        error: function(xhr) {
+            const message = xhr.responseJSON ? xhr.responseJSON.message : 'Server error: Could not publish course.';
+            $message.text(message).show();
+            $('#submit-course-btn').prop('disabled', false).text('Publish Course');
+        }
     });
 }
 
-function loadStudentCoursesView() {
-    const student = getLoggedInUser();
-    if (!student || getLoggedInUserType() !== 'Student') {
+/** Handles the deletion of a course by a tutor. */
+function handleCourseDeletion(courseId) {
+    $.ajax({
+        url: `${API_BASE_URL}/courses/${courseId}`,
+        method: 'DELETE',
+        success: function(response) {
+            alert(response.message);
+            loadTutorDashboardView();
+        },
+        error: function(xhr) {
+            alert(`Error deleting course: ${xhr.responseJSON?.message || 'Server error'}`);
+        }
+    });
+}
+
+// --- 8. Student/Course Interaction Handlers ---
+
+/** Handles a student enrolling in a course. */
+function handleEnrollment(e, courseId) {
+    e.preventDefault();
+    const studentId = getLoggedInUserId();
+    const $button = $('#enroll-course-btn');
+    
+    if (!studentId) {
+        alert('Please sign in as a student to enroll.');
         loadStudentSignInView();
         return;
     }
 
-    $('#content-area').html(`
-        <h2 class="text-3xl font-bold mb-6 text-gray-800">My Enrolled Courses</h2>
-        <div id="enrolled-courses-list" class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <p class="text-gray-500 col-span-3">Fetching your enrolled courses...</p>
-        </div>
-    `);
+    $button.prop('disabled', true).text('Enrolling...');
 
-    // API Call to get enrolled courses for the student
-    $.get(`${API_BASE_URL}/enrollments/${student.id}`, function (enrollments) {
-        const listContainer = $('#enrolled-courses-list');
-        listContainer.empty();
-
-        if (enrollments.length === 0) {
-            listContainer.html('<p class="text-gray-600 col-span-3">You are not enrolled in any courses yet. <a href="#" onclick="loadStudentCourseCatalog();" class="text-indigo-600 font-semibold">Browse the catalog to get started.</a></p>');
-            return;
+    $.ajax({
+        url: `${API_BASE_URL}/enrollments`,
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ studentId, courseId }),
+        success: function(response) {
+            alert(`Successfully enrolled in: ${response.courseTitle}!`);
+            // Reload the course detail view to show the 'Enrolled' status and player
+            loadCourseDetailView(courseId); 
+        },
+        error: function(xhr) {
+            const message = xhr.responseJSON ? xhr.responseJSON.message : 'An unknown enrollment error occurred.';
+            alert(`Enrollment failed: ${message}`);
+            $button.prop('disabled', false).text('Enroll Now (Free)');
         }
-
-        enrollments.forEach(enrollment => {
-            const course = enrollment.courseId; // Assuming backend populates the course details here
-
-            listContainer.append(`
-                <div class="bg-white p-4 rounded-lg shadow-md hover:shadow-xl transition course-card" data-id="${course._id}">
-                    <h3 class="text-xl font-semibold text-green-700">${course.title}</h3>
-                    <p class="text-gray-600 text-sm mt-1">Tutor: ${course.tutor ? course.tutor.name : 'N/A'}</p>
-                    <p class="text-gray-600 text-sm mt-1">Progress: **${enrollment.progressPercentage || 0}%**</p>
-                    <button class="view-btn mt-3 bg-green-600 text-white px-3 py-1 text-sm rounded hover:bg-green-700" 
-                        data-id="${course._id}">Continue Learning</button>
-                </div>
-            `);
-        });
-
-        // Attach view handler
-        listContainer.off('click', '.view-btn').on('click', '.view-btn', function () {
-            fetchAndLoadCoursePlayer($(this).data('id'));
-        });
-    }).fail(() => {
-        $('#enrolled-courses-list').html('<p class="text-red-500 col-span-3">Failed to load your enrolled courses from the API.</p>');
     });
 }
 
+/** Handles the submission of a comment/review. */
+function handleCommentSubmission(e) {
+    e.preventDefault();
+    
+    const courseId = $(this).data('course-id');
+    const studentId = getLoggedInUserId();
+    const text = $('#comment-text').val();
+    const rating = parseInt($('#comment-rating').val());
+    const $message = $('#comment-message');
+    const $submitBtn = $(this).find('button[type="submit"]');
 
-// --- 8. Global Handlers ---
+    if (!studentId) {
+        $message.text('You must be logged in to leave a review.').show();
+        return;
+    }
+    if (rating === 0) {
+        $message.text('Please select a star rating.').show();
+        return;
+    }
+    if (!text.trim()) {
+        $message.text('Please enter a comment.').show();
+        return;
+    }
 
-function attachNavHandlers() {
-    // Sign Out Handler (works for both desktop and mobile through delegation)
-    $('body').off('click', '#nav-sign-out').on('click', '#nav-sign-out', function (e) {
-        e.preventDefault();
-        handleSignOut($(this).data('user-type'));
+    $message.hide().text('');
+    $submitBtn.prop('disabled', true).text('Submitting...');
+
+    $.ajax({
+        url: `${API_BASE_URL}/comments`,
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ courseId, studentId, text, rating }),
+        success: function(response) {
+            alert('Review submitted successfully!');
+            // Reload the course detail view to update the comments list and rating
+            loadCourseDetailView(courseId); 
+        },
+        error: function(xhr) {
+            const message = xhr.responseJSON ? xhr.responseJSON.message : 'An unknown error occurred.';
+            $message.text(`Submission failed: ${message}`).show();
+            $submitBtn.prop('disabled', false).text('Submit Review');
+        }
     });
+}
 
-    // Global Home Link (Logo/Home Button)
-    $('#home-nav-link').off('click').on('click', function (e) {
-        e.preventDefault();
-        const userType = getLoggedInUserType();
-        if (userType === 'Tutor') loadTutorDashboardView();
-        else if (userType === 'Student') loadStudentCoursesView();
-        else loadStudentCourseCatalog();
+/** Handles the deletion of a comment by a tutor. */
+function handleCommentDeletion(commentId, courseId) {
+    const $commentsList = $('#comments-list-area');
+
+    $.ajax({
+        url: `${API_BASE_URL}/comments/${commentId}`,
+        method: 'DELETE',
+        success: function(response) {
+            alert(response.message);
+            // Reload the course detail view to refresh the comments list and average rating
+            loadCourseDetailView(courseId); 
+        },
+        error: function(xhr) {
+            alert(`Error deleting comment: ${xhr.responseJSON?.message || 'Server error'}`);
+        }
     });
-
-    // Student/Public Navigation
-    $('body').off('click', '#view-tutorials-link').on('click', '#view-tutorials-link', (e) => { e.preventDefault(); loadStudentCourseCatalog(); });
-    $('body').off('click', '#student-tutorials-link').on('click', '#student-tutorials-link', (e) => { e.preventDefault(); loadStudentCoursesView(); });
-    $('body').off('click', '#student-sign-in').on('click', '#student-sign-in', (e) => { e.preventDefault(); loadStudentSignInView(); });
-    $('body').off('click', '#student-sign-up').on('click', '#student-sign-up', (e) => { e.preventDefault(); loadStudentSignUpView(); });
-
-    // Tutor Navigation
-    $('body').off('click', '#tutor-sign-in').on('click', '#tutor-sign-in', (e) => { e.preventDefault(); loadTutorSignInView(); });
-    $('body').off('click', '#tutor-sign-up').on('click', '#tutor-sign-up', (e) => { e.preventDefault(); loadTutorSignUpView(); });
-    $('body').off('click', '#tutor-dashboard-link').on('click', '#tutor-dashboard-link', (e) => { e.preventDefault(); loadTutorDashboardView(); });
-
-    // Landing Page Handlers
-    $('#student-sign-in-from-landing').off('click').on('click', (e) => { e.preventDefault(); loadStudentSignInView(); });
-    $('#tutor-sign-in-from-landing').off('click').on('click', (e) => { e.preventDefault(); loadTutorSignInView(); });
 }
 
 
@@ -820,31 +1281,109 @@ $(document).ready(function () {
     const isLoggedIn = !!userType;
 
     // 2. Load Navigation and Initial View
-    // This is run first to set up the links based on session
     updateNavVisibility(userType, isLoggedIn);
 
     // 3. Decide which view to load
     if (isLoggedIn) {
-        // If logged in, clear the landing page and load the dashboard/my courses
+        clearContentArea(); 
         if (userType === 'Tutor') loadTutorDashboardView();
         else loadStudentCoursesView();
     } else {
-        // If logged out, the initial index.html landing page is already visible
-        // We only switch to the catalog view if the user clicks the "Browse Catalog" link
-        // However, for consistency, let's load the full catalog if they aren't on the landing page
-        const isDefaultLandingPage = $('#content-area section').length > 0;
-        if (!isDefaultLandingPage) {
-            loadStudentCourseCatalog(); // Fallback in case a direct link was used
+        // If logged out: The landing page is already in index.html, just attach handlers
+        attachLandingPageHandlers();
+        // If the initial content area is empty (which happens if it was cleared before), 
+        // load the course catalog as a fallback for guest users.
+        if ($contentArea.children().length === 0) {
+            loadStudentCourseCatalog();
         }
     }
 
-    // 4. Mobile menu toggle
+    // --- 4. Global Link Handlers (Attached once) ---
+
+    // Mobile menu toggle
     $('#mobile-menu-toggle').on('click', function () {
-        $('#mobile-menu').toggleClass('hidden');
-        $('#menu-icon').toggleClass('hidden');
-        $('#close-icon').toggleClass('hidden');
+        $('#mobile-menu').toggleClass('-translate-y-full translate-y-0');
+        const $iconPath = $('#menu-path');
+        if ($('#mobile-menu').hasClass('translate-y-0')) {
+             $iconPath.attr('d', 'M6 18L18 6M6 6l12 12'); // Close Icon
+        } else {
+             $iconPath.attr('d', 'M4 6h16M4 12h16M4 18h16'); // Menu Icon
+        }
     });
 
-    // 5. Attach global handlers (already run once in updateNavVisibility, but kept here for clarity/safety)
-    attachNavHandlers();
+    // Home link handler
+    $('#home-nav-link').off('click').on('click', (e) => { 
+        e.preventDefault();
+        const loggedInUserType = getLoggedInUserType();
+        if (loggedInUserType === 'Tutor') loadTutorDashboardView();
+        else if (loggedInUserType === 'Student') loadStudentCoursesView();
+        else loadLandingPageView(); 
+    });
+
+    // --- Dynamic Nav Link Handlers (Delegation and Specific Calls) ---
+    // These need to be attached after updateNavVisibility runs, 
+    // but we use off().on() to prevent multiple bindings if updateNavVisibility is called multiple times.
+    
+    // Student Sign Up/In
+    $('#desktop-menu-links, #mobile-menu-links').off('click', '#nav-student-auth, #mobile-nav-student-auth').on('click', '#nav-student-auth, #mobile-nav-student-auth', (e) => { 
+        e.preventDefault(); 
+        clearContentArea(); 
+        loadStudentSignInView(); 
+        hideMobileMenu();
+    });
+
+    // Tutor Sign Up/In
+    $('#desktop-menu-links, #mobile-menu-links').off('click', '#nav-tutor-auth, #mobile-nav-tutor-auth').on('click', '#nav-tutor-auth, #mobile-nav-tutor-auth', (e) => { 
+        e.preventDefault(); 
+        clearContentArea(); 
+        loadTutorSignInView(); 
+        hideMobileMenu();
+    });
+
+    // Course Catalog
+    $('#desktop-menu-links, #mobile-menu-links').off('click', '#nav-course-catalog, #mobile-nav-course-catalog').on('click', '#nav-course-catalog, #mobile-nav-course-catalog', (e) => { 
+        e.preventDefault(); 
+        loadStudentCourseCatalog(); 
+        hideMobileMenu();
+    });
+    
+    // Student My Courses
+    $('#desktop-menu-links, #mobile-menu-links').off('click', '#nav-my-courses, #mobile-nav-my-courses').on('click', '#nav-my-courses, #mobile-nav-my-courses', (e) => { 
+        e.preventDefault(); 
+        loadStudentCoursesView(); 
+        hideMobileMenu();
+    });
+
+    // Tutor Dashboard
+    $('#desktop-menu-links, #mobile-menu-links').off('click', '#nav-tutor-dashboard, #mobile-nav-tutor-dashboard').on('click', '#nav-tutor-dashboard, #mobile-nav-tutor-dashboard', (e) => { 
+        e.preventDefault(); 
+        loadTutorDashboardView(); 
+        hideMobileMenu();
+    });
+
+    // Tutor Create Course
+    $('#desktop-menu-links, #mobile-menu-links').off('click', '#nav-create-course, #mobile-nav-create-course').on('click', '#nav-create-course, #mobile-nav-create-course', (e) => { 
+        e.preventDefault(); 
+        loadCourseCreationView(); 
+        hideMobileMenu();
+    });
+
+    // Sign Out
+    $('#desktop-menu-links, #mobile-menu-links').off('click', '#nav-sign-out, #mobile-nav-sign-out').on('click', '#nav-sign-out, #mobile-nav-sign-out', handleSignOut);
 });
+
+// --- 10. Landing Page Handlers (Attached only on initial load if logged out) ---
+function attachLandingPageHandlers() {
+     // Landing Page button handlers
+    $('#student-sign-in-from-landing').off('click').on('click', (e) => { 
+        e.preventDefault(); 
+        clearContentArea(); 
+        loadStudentSignInView(); 
+    });
+
+    $('#tutor-sign-in-from-landing').off('click').on('click', (e) => { 
+        e.preventDefault(); 
+        clearContentArea(); 
+        loadTutorSignInView(); 
+    });
+}

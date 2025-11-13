@@ -1,15 +1,35 @@
 // models/User.js
 
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt'); // Use bcrypt for Node.js environments
 
 const UserSchema = new mongoose.Schema({
-    name: { type: String, required: true, trim: true },
-    email: { type: String, required: true, unique: true, trim: true, lowercase: true },
-    password: { type: String, required: true },
+    name: { 
+        type: String, 
+        required: true, 
+        trim: true 
+    },
+    email: { 
+        type: String, 
+        required: true, 
+        unique: true, 
+        trim: true, 
+        lowercase: true 
+    },
+    password: { 
+        type: String, 
+        required: true 
+    },
     // Differentiate between Tutor and Student roles
-    role: { type: String, required: true, enum: ['tutor', 'student'] }, 
-    createdAt: { type: Date, default: Date.now }
+    role: { 
+        type: String, 
+        required: true, 
+        enum: ['tutor', 'student'] 
+    }, 
+    createdAt: { 
+        type: Date, 
+        default: Date.now 
+    }
 });
 
 // --- CRITICAL: Password Hashing Middleware ---

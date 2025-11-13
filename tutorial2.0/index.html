@@ -5,16 +5,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TutorHub: Online Tutorials & Content Management</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" integrity="sha512-..." crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Ensures the mobile menu takes up the full viewport height */
+        /* Ensures the mobile menu takes up the full viewport height and is positioned correctly */
         #mobile-menu {
-            height: calc(100vh - 64px); /* Full height minus the nav bar height */
-            top: 64px; /* Position below the nav bar */
+            height: calc(100vh - 64px); 
+            top: 64px; 
         }
     </style>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="app.js" defer></script>
+    <script src="app.js" defer></script> 
 </head>
 
 <body class="bg-gray-50 min-h-screen flex flex-col">
@@ -26,74 +27,65 @@
                 <a href="#" id="home-nav-link" class="hover:text-indigo-200 transition">TutorHub</a>
             </h1>
 
-            <div id="desktop-menu-links" class="hidden md:flex space-x-4 items-center">
-                
-                <div id="student-nav" class="space-x-4 flex items-center">
-                    </div>
-
-                <div id="tutor-auth-nav" class="space-x-4 flex items-center">
-                     </div>
-                
-                <div id="tutor-dashboard-nav" class="space-x-4 items-center hidden">
-                     </div>
-
-            </div>
-
-            <div class="md:hidden flex items-center">
-                <button id="mobile-menu-toggle" class="text-white p-2 focus:outline-none">
-                    <svg id="menu-icon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path>
+            <div id="desktop-menu-links" class="hidden md:flex space-x-6 items-center">
+                </div>
+            <div class="md:hidden">
+                <button id="mobile-menu-toggle" type="button" class="inline-flex items-center justify-center p-2 rounded-md text-indigo-200 hover:text-white hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white" aria-controls="mobile-menu" aria-expanded="false">
+                    <span class="sr-only">Open main menu</span>
+                    <svg id="menu-icon" class="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <path id="menu-path" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                     </svg>
-                    <svg id="close-icon" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    <svg id="close-icon" class="hidden h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <path id="close-path" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
             </div>
+            </div>
+
+        <div class="md:hidden absolute left-0 w-full bg-indigo-700 shadow-lg transform -translate-y-full transition-transform duration-300 ease-out z-40" id="mobile-menu">
+            <div id="mobile-menu-links" class="px-2 pt-2 pb-3 space-y-1">
+                </div>
         </div>
     </nav>
-    
-    <div id="mobile-menu" class="fixed inset-x-0 bg-indigo-800 shadow-xl overflow-y-auto z-40 hidden md:hidden">
-        <div class="p-4 space-y-4 flex flex-col items-start">
-             </div>
-    </div>
-    
-    <main class="flex-grow max-w-7xl mx-auto p-4 md:p-8 mt-4 w-full">
-        <div id="content-area">
-            <section class="text-center py-16 md:py-24 bg-white rounded-xl shadow-2xl border-t-8 border-indigo-600">
-                <h2 class="text-5xl font-extrabold text-gray-900 mb-4">Welcome to <span class="text-indigo-600">TutorHub</span></h2>
-                <p class="text-xl text-gray-600 max-w-3xl mx-auto mb-8">
-                    Your platform for seamless online tutorial management. Whether you're here to learn or to share your expertise, TutorHub connects students with custom-built video content.
-                </p>
-                <div class="flex flex-col md:flex-row justify-center space-y-4 md:space-y-0 md:space-x-6">
-                    
-                    <div class="p-6 bg-indigo-50 rounded-lg shadow-md max-w-sm">
-                        <h3 class="text-2xl font-bold text-indigo-700 mb-2">I'm a Student 🎓</h3>
-                        <p class="text-gray-700 mb-4">Access a growing catalog of video courses, track your progress, and engage in discussions.</p>
-                        <a href="#" id="student-sign-in-from-landing" 
-                            class="w-full inline-block bg-indigo-600 text-white px-6 py-3 rounded-full hover:bg-indigo-700 transition shadow-lg">
-                            Start Learning
-                        </a>
+
+    <main class="flex-grow">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            
+            <div id="content-area">
+                <section class="text-center py-20 bg-white shadow-xl rounded-xl">
+                    <h2 class="text-5xl font-extrabold text-indigo-800 mb-4">Welcome to TutorHub!</h2>
+                    <p class="text-xl text-gray-600 mb-10 max-w-3xl mx-auto">Your platform for learning and teaching video tutorials.</p>
+
+                    <div class="flex flex-col md:flex-row justify-center space-y-6 md:space-y-0 md:space-x-10">
+                        
+                        <div class="p-8 bg-indigo-50 rounded-xl shadow-2xl max-w-sm border-t-4 border-indigo-600 hover:shadow-3xl transition duration-300">
+                            <h3 class="text-2xl font-bold text-indigo-700 mb-4"><i class="fas fa-user-graduate"></i> I'm a Student</h3>
+                            <p class="text-gray-700 mb-6">Access a growing catalog of video courses, track your progress, and engage in discussions.</p>
+                            <a href="#" id="student-sign-in-from-landing" 
+                                class="w-full inline-block bg-indigo-600 text-white px-6 py-3 rounded-full font-semibold hover:bg-indigo-700 transition shadow-lg">
+                                Start Learning &rarr;
+                            </a>
+                        </div>
+                        
+                        <div class="p-8 bg-green-50 rounded-xl shadow-2xl max-w-sm border-t-4 border-green-600 hover:shadow-3xl transition duration-300">
+                            <h3 class="text-2xl font-bold text-green-700 mb-4"><i class="fas fa-chalkboard-teacher"></i> I'm a Tutor</h3>
+                            <p class="text-gray-700 mb-6">Publish your custom video tutorials using local files or YouTube embeds, and manage your content.</p>
+                            <a href="#" id="tutor-sign-in-from-landing" 
+                                class="w-full inline-block bg-green-600 text-white px-6 py-3 rounded-full font-semibold hover:bg-green-700 transition shadow-lg">
+                                Publish Content &rarr;
+                            </a>
+                        </div>
+                        
                     </div>
-                    
-                    <div class="p-6 bg-green-50 rounded-lg shadow-md max-w-sm">
-                        <h3 class="text-2xl font-bold text-green-700 mb-2">I'm a Tutor 🧑‍🏫</h3>
-                        <p class="text-gray-700 mb-4">Publish your custom video tutorials using local files or YouTube embeds, and manage your content.</p>
-                        <a href="#" id="tutor-sign-in-from-landing" 
-                            class="w-full inline-block bg-green-600 text-white px-6 py-3 rounded-full hover:bg-green-700 transition shadow-lg">
-                            Publish Content
-                        </a>
-                    </div>
-                    
-                </div>
-            </section>
+                </section>
+            </div>
         </div>
     </main>
 
     <footer class="bg-gray-800 mt-12 py-8">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-white">
-             <p class="text-sm text-gray-400">&copy; 2025 TutorHub. All rights reserved. (Demo Project)</p>
+             <p class="text-sm">TutorHub &copy; 2023 | Developed by Your Team</p>
         </div>
     </footer>
-
 </body>
 </html>
