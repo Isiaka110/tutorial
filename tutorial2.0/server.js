@@ -6,7 +6,7 @@ const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
-const bcrypt = require('bcrypt'); // For password hashing/comparison
+const bcrypt = require('bcryptjs'); // For password hashing/comparison
 
 // --- MongoDB Atlas Connection URI ---
 // IMPORTANT: REPLACE 'Iamagoodboy18' WITH YOUR ACTUAL MongoDB Atlas password.
@@ -90,54 +90,148 @@ async function recalculateCourseRating(courseId) {
 // --- User/Auth Routes ---
 
 // 3.1. POST /api/users/signup - Register a new user (Student or Tutor)
+// app.post('/api/users/signup', async (req, res) => {
+//     const { name, email, password, role } = req.body;
+//     try {
+//         if (role !== 'student' && role !== 'tutor') {
+//             return res.status(400).json({ message: 'Invalid user role specified.' });
+//         }
+//         const user = await User.create({ name, email, password, role });
+//         // The password is automatically hashed by the pre-save middleware in User.js
+//         res.status(201).json({ 
+//             _id: user._id, 
+//             name: user.name, 
+//             email: user.email, 
+//             role: user.role,
+//             message: `${role} account created successfully!` 
+//         });
+//     } catch (error) {
+//         if (error.code === 11000) {
+//             return res.status(400).json({ message: 'Email already in use.' });
+//         }
+//         console.error("Signup error:", error);
+//         res.status(500).json({ message: 'Server error during signup.' });
+//     }
+// });
+// server.js
+
+// ... other imports and routes ...
+
+// 5. POST /api/users/signup - User Registration (Student or Tutor)
+// server.js (Add this block for the User Sign Up route)
+
+// POST /api/users/signup - Registers a new user (Student or Tutor)
+// server.js (Add this block for the User Sign Up route)
+
+// POST /api/users/signup - Registers a new user (Student or Tutor)
 app.post('/api/users/signup', async (req, res) => {
     const { name, email, password, role } = req.body;
+
+    // 1. Basic Validation
+    if (!name || !email || !password || !role) {
+        return res.status(400).json({ message: 'Please provide name, email, password, and role.' });
+    }
+
+    // Role validation to match Mongoose enum ['tutor', 'student']
+    const validRole = role.toLowerCase();
+    if (validRole !== 'tutor' && validRole !== 'student') {
+        return res.status(400).json({ message: 'Invalid role specified. Must be "Student" or "Tutor".' });
+    }
+
     try {
-        if (role !== 'student' && role !== 'tutor') {
-            return res.status(400).json({ message: 'Invalid user role specified.' });
+        // 2. Check if user already exists
+        let user = await User.findOne({ email });
+        if (user) {
+            return res.status(400).json({ message: `A user with email ${email} already exists.` });
         }
-        const user = await User.create({ name, email, password, role });
-        // The password is automatically hashed by the pre-save middleware in User.js
-        res.status(201).json({ 
-            _id: user._id, 
-            name: user.name, 
-            email: user.email, 
-            role: user.role,
-            message: `${role} account created successfully!` 
+
+        // 3. Create a new user (password hashing is handled by User.js pre-save middleware)
+        user = new User({
+            name,
+            email,
+            password, // Mongoose pre-save hook handles hashing
+            role: validRole
         });
+
+        const newUser = await user.save();
+
+        // 4. Return success response (Do not return the password)
+        res.status(201).json({
+            message: 'User registered successfully. Please sign in.',
+            user: {
+                _id: newUser._id,
+                name: newUser.name,
+                email: newUser.email,
+                role: newUser.role
+            }
+        });
+
     } catch (error) {
+        // Log the full error to the console for debugging
+        console.error('Sign Up Error:', error); 
+        
+        // Handle MongoDB duplicate key error (code 11000 for unique email constraint)
         if (error.code === 11000) {
-            return res.status(400).json({ message: 'Email already in use.' });
+             return res.status(400).json({ message: 'That email is already registered.' });
         }
-        console.error("Signup error:", error);
-        res.status(500).json({ message: 'Server error during signup.' });
+        
+        // Return a generic 500 for other server-side failures
+        res.status(500).json({ message: 'Server error during registration.' });
     }
 });
+
 
 // 3.2. POST /api/users/signin - Authenticate a user
 app.post('/api/users/signin', async (req, res) => {
     const { email, password, role } = req.body;
-    try {
-        const user = await User.findOne({ email });
-        
-        if (user && (await user.matchPassword(password))) {
-            // Check if the user's role matches the attempted sign-in role
-            if (user.role.toLowerCase() !== role.toLowerCase()) {
-                return res.status(401).json({ message: `This account is registered as a ${user.role}. Please sign in with the correct role.` });
-            }
 
-            res.json({
-                _id: user._id,
+    // Basic input validation
+    if (!email || !password || !role) {
+        return res.status(400).json({ message: 'Please provide email, password, and role.' });
+    }
+    
+    // Ensure role is lowercase to match the model's enum ['tutor', 'student']
+    const queryRole = role.toLowerCase(); 
+
+    try {
+        // 1. Find the user by email AND role
+        const user = await User.findOne({ email, role: queryRole });
+
+        if (user && (await user.matchPassword(password))) {
+            // Success: Password matches. 
+            // Return only safe/necessary user data
+            const userResponse = {
+                _id: user._id, // MongoDB ID
                 name: user.name,
                 email: user.email,
-                role: user.role
+                role: user.role // 'tutor' or 'student'
+            };
+            
+            // 2. Respond with the user data
+            // res.json({ 
+            //     message: `${user.role === 'tutor' ? 'Tutor' : 'Student'} sign-in successful.`, 
+            //     user: userResponse 
+            // });
+            res.json({ 
+                message: `${user.role === 'tutor' ? 'Tutor' : 'Student'} sign-in successful.`, 
+                user: { // CRITICAL: The user object is nested here
+                    _id: user._id, 
+                    name: user.name,
+                    email: user.email,
+                    role: user.role 
+                } 
             });
+
         } else {
-            res.status(401).json({ message: 'Invalid email or password.' });
+            // Failure: User not found or password incorrect
+            // Send 401 Unauthorized for security
+            res.status(401).json({ message: 'Invalid credentials or incorrect user type.' });
         }
+
     } catch (error) {
-        console.error("Signin error:", error);
-        res.status(500).json({ message: 'Server error during signin.' });
+        console.error("Error during user sign-in:", error);
+        // CRITICAL: This catch prevents the 500 error from crashing the server
+        res.status(500).json({ message: 'Server error during sign-in process.' });
     }
 });
 
@@ -257,38 +351,52 @@ app.delete('/api/courses/:id', async (req, res) => {
 
 // --- Enrollment Routes (Student) ---
 
-// 3.8. POST /api/enrollments - Enroll a student in a course
+// server.js (Enrollment Route: POST /api/enrollments)
+
+// 8. POST /api/enrollments - Enroll a student in a course
 app.post('/api/enrollments', async (req, res) => {
-    const { studentId, courseId } = req.body;
     try {
-        // Check if already enrolled
+        const { studentId, courseId } = req.body;
+
+        // 1. Basic validation check
+        if (!studentId || !courseId) {
+            return res.status(400).json({ message: 'Missing studentId or courseId for enrollment.' });
+        }
+
+        // 2. Check for existing enrollment (prevents duplicate error)
         const existingEnrollment = await Enrollment.findOne({ studentId, courseId });
         if (existingEnrollment) {
-            return res.status(400).json({ message: 'Already enrolled in this course.' });
+            return res.status(400).json({ message: 'You are already enrolled in this course.' });
         }
-        
-        const newEnrollment = new Enrollment({ studentId, courseId });
-        await newEnrollment.save();
-        
-        // Increment the enrollmentCount on the Course model
-        const course = await Course.findByIdAndUpdate(
-            courseId, 
-            { $inc: { enrollmentCount: 1 } },
-            { new: true }
-        );
 
+        // 3. Create and save the new enrollment
+        const newEnrollment = new Enrollment({
+            studentId,
+            courseId,
+            progressPercentage: 0 // Default progress
+        });
+
+        await newEnrollment.save(); 
+
+        // 4. Increment enrolledStudents count on the Course model
+        const course = await Course.findByIdAndUpdate(
+            courseId,
+            // $inc will create the field if it doesn't exist, which can be useful
+            { $inc: { enrolledStudents: 1 } },
+            { new: true, select: 'title' }
+        );
+        
+        // Final response
         res.status(201).json({ 
-            message: 'Enrollment successful.',
-            enrollment: newEnrollment,
-            courseTitle: course ? course.title : 'Course'
+            message: `Enrollment in ${course ? course.title : 'Course'} successful.`,
+            enrollment: newEnrollment
         });
 
     } catch (error) {
-        if (error.code === 11000) {
-            return res.status(400).json({ message: 'Already enrolled in this course (Unique index violation).' });
-        }
-        console.error("Error during enrollment:", error);
-        res.status(500).json({ message: 'Server error during enrollment.' });
+        // Log the error to your console for debugging
+        console.error("Error during enrollment:", error.message, error.stack); 
+        // Send a generic 500 response
+        res.status(500).json({ message: 'Server error during enrollment. Please check the server console for details.' });
     }
 });
 

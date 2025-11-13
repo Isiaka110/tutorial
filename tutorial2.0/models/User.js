@@ -1,7 +1,7 @@
 // models/User.js
 
 const mongoose = require('mongoose');
-const bcrypt = require('bcrypt'); // Use bcrypt for Node.js environments
+const bcrypt = require('bcryptjs'); // Use bcrypt for Node.js environments
 
 const UserSchema = new mongoose.Schema({
     name: { 
@@ -34,6 +34,10 @@ const UserSchema = new mongoose.Schema({
 
 // --- CRITICAL: Password Hashing Middleware ---
 // This runs BEFORE saving the user to the database
+// models/User.js
+// ...
+// --- CRITICAL: Password Hashing Middleware ---
+// This runs BEFORE saving the user to the database
 UserSchema.pre('save', async function(next) {
     // Only hash if the password has been modified (or is new)
     if (!this.isModified('password')) {
@@ -42,11 +46,12 @@ UserSchema.pre('save', async function(next) {
     try {
         const salt = await bcrypt.genSalt(10);
         this.password = await bcrypt.hash(this.password, salt);
-        next();
+        next(); // CRITICAL: Call next() after successful hashing
     } catch (err) {
-        next(err);
+        next(err); // CRITICAL: Pass the error to Mongoose
     }
 });
+// ...
 
 // --- Method to compare passwords on sign-in ---
 UserSchema.methods.matchPassword = async function(enteredPassword) {

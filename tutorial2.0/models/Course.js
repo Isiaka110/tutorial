@@ -3,19 +3,8 @@
 const mongoose = require('mongoose');
 
 // Define the Asset Sub-Schema
-const assetSchema = new mongoose.Schema({
-    type: {
-        type: String,
-        enum: ['local', 'youtube'], // Restrict to valid types
-        required: true,
-    },
-    url: {
-        type: String, // Filename for local, full URL for YouTube
-        required: true,
-    },
-}, { _id: false });
+// ... (assetSchema and chapterSchema omitted for brevity)
 
-// Define the Chapter Sub-Schema
 const chapterSchema = new mongoose.Schema({
     title: {
         type: String,
@@ -59,9 +48,8 @@ const courseSchema = new mongoose.Schema({
         default: 0,
     },
     // --- Enrollment Count field (calculated) ---
-    // Note: Enrollment count is often calculated live or stored on the Enrollment model.
-    // However, including it here simplifies API calls for course lists.
-    enrollmentCount: {
+    // CRITICAL FIX: Change field name to 'enrolledStudents' to match server.js $inc logic.
+    enrolledStudents: { // <-- **UPDATED FIELD NAME**
         type: Number,
         default: 0,
     },

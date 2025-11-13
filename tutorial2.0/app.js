@@ -5,18 +5,18 @@ const API_BASE_URL = 'http://localhost:5000/api';
 const API_BASE_ROOT = 'http://localhost:5000'; // Used for fetching local assets
 
 // --- 2. Helper Functions for User Session ---
+// app.js (Around line 7)
 
 /** Fetches the logged-in user's MongoDB ID. */
 function getLoggedInUserId() {
     const tutor = localStorage.getItem('loggedInTutor');
     const student = localStorage.getItem('loggedInStudent');
 
-    // Assumes MongoDB ID is stored as '_id'
-    if (tutor) return JSON.parse(tutor)._id;
-    if (student) return JSON.parse(student)._id;
+    // CRITICAL FIX: Use the MongoDB primary key '_id'
+    if (tutor) return JSON.parse(tutor)._id; 
+    if (student) return JSON.parse(student)._id; 
     return null;
 }
-
 /** Determines if the logged-in user is a 'Tutor' or 'Student'. */
 function getLoggedInUserType() {
     if (localStorage.getItem('loggedInTutor')) return 'Tutor';
@@ -306,29 +306,93 @@ function loadTutorSignUpView() {
 
 // --- 6. User Auth API Handlers ---
 
+// function handleSignUp(e, role) {
+//     e.preventDefault();
+//     const form = $(e.target);
+//     const name = form.find('#name').val();
+//     const email = form.find('#email').val();
+//     const password = form.find('#password').val();
+//     const messageArea = form.find(`#${role}-signup-form #signup-message`);
+
+//     messageArea.removeClass().html('<span class="text-blue-500">Processing...</span>');
+
+//     $.post(`${API_BASE_URL}/users/signup`, { name, email, password, role })
+//         .done(function(data) {
+//             messageArea.removeClass().addClass('text-green-600 font-bold').text('Account created! Please sign in.');
+//             // Automatically switch to sign-in view after a delay
+//             setTimeout(() => {
+//                 if (role === 'student') loadStudentSignInView();
+//                 else loadTutorSignInView();
+//             }, 1500);
+//         })
+//         .fail(function(xhr) {
+//             const error = xhr.responseJSON ? xhr.responseJSON.message : 'Signup failed. Please try again.';
+//             messageArea.removeClass().addClass('text-red-600 font-bold').text(error);
+//         });
+// }
+
+// function handleSignIn(e, role) {
+//     e.preventDefault();
+//     const form = $(e.target);
+//     const email = form.find('#email').val();
+//     const password = form.find('#password').val();
+//     const messageArea = form.find(`#${role}-signin-form #signin-message`);
+
+//     messageArea.removeClass().html('<span class="text-blue-500">Processing...</span>');
+
+//     $.post(`${API_BASE_URL}/users/signin`, { email, password, role })
+//         .done(function(data) {
+//             // Save user data to localStorage
+//             localStorage.setItem(`loggedIn${data.role}`, JSON.stringify(data));
+//             messageArea.removeClass().addClass('text-green-600 font-bold').text(`Welcome, ${data.name.split(' ')[0]}!`);
+            
+//             // Update UI and load dashboard
+//             updateNavVisibility(data.role, true);
+//             setTimeout(() => {
+//                 clearContentArea();
+//                 if (data.role === 'tutor') loadTutorDashboardView();
+//                 else loadStudentCoursesView();
+//             }, 1000);
+//         })
+//         .fail(function(xhr) {
+//             const error = xhr.responseJSON ? xhr.responseJSON.message : 'Sign-in failed. Check your email and password.';
+//             messageArea.removeClass().addClass('text-red-600 font-bold').text(error);
+//         });
+// }
+// app.js (Updated functions)
+
 function handleSignUp(e, role) {
     e.preventDefault();
     const form = $(e.target);
     const name = form.find('#name').val();
     const email = form.find('#email').val();
     const password = form.find('#password').val();
-    const messageArea = form.find(`#${role}-signup-form #signup-message`);
+    // Using form.find() is generally safer than relying on a complex ID selector
+    const messageArea = form.find('#signup-message'); 
 
     messageArea.removeClass().html('<span class="text-blue-500">Processing...</span>');
 
-    $.post(`${API_BASE_URL}/users/signup`, { name, email, password, role })
-        .done(function(data) {
+    // CRITICAL FIX: Use $.ajax for explicit JSON content type
+    $.ajax({
+        url: `${API_BASE_URL}/users/signup`,
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ name, email, password, role }), // Send as JSON string
+        
+        success: function(data) {
             messageArea.removeClass().addClass('text-green-600 font-bold').text('Account created! Please sign in.');
             // Automatically switch to sign-in view after a delay
             setTimeout(() => {
                 if (role === 'student') loadStudentSignInView();
                 else loadTutorSignInView();
             }, 1500);
-        })
-        .fail(function(xhr) {
+        },
+        
+        error: function(xhr) {
             const error = xhr.responseJSON ? xhr.responseJSON.message : 'Signup failed. Please try again.';
             messageArea.removeClass().addClass('text-red-600 font-bold').text(error);
-        });
+        }
+    });
 }
 
 function handleSignIn(e, role) {
@@ -336,30 +400,45 @@ function handleSignIn(e, role) {
     const form = $(e.target);
     const email = form.find('#email').val();
     const password = form.find('#password').val();
-    const messageArea = form.find(`#${role}-signin-form #signin-message`);
+    // Using form.find() is generally safer than relying on a complex ID selector
+    const messageArea = form.find('#signin-message'); 
 
     messageArea.removeClass().html('<span class="text-blue-500">Processing...</span>');
 
-    $.post(`${API_BASE_URL}/users/signin`, { email, password, role })
-        .done(function(data) {
+    // CRITICAL FIX: Use $.ajax for explicit JSON content type
+    $.ajax({
+        url: `${API_BASE_URL}/users/signin`,
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ email, password, role }), // Send as JSON string
+        
+        success: function(response) {
+            // CRITICAL FIX: Get the user object from the nested 'user' field in the response
+            const user = response.user;
+            // The helper functions use a capitalized user type ('Tutor' or 'Student')
+            const userType = user.role.charAt(0).toUpperCase() + user.role.slice(1); 
+
             // Save user data to localStorage
-            localStorage.setItem(`loggedIn${data.role}`, JSON.stringify(data));
-            messageArea.removeClass().addClass('text-green-600 font-bold').text(`Welcome, ${data.name.split(' ')[0]}!`);
+            localStorage.setItem(`loggedIn${userType}`, JSON.stringify(user));
+            
+            messageArea.removeClass().addClass('text-green-600 font-bold').text(`Welcome, ${user.name.split(' ')[0]}!`);
             
             // Update UI and load dashboard
-            updateNavVisibility(data.role, true);
+            updateNavVisibility(userType, true);
             setTimeout(() => {
                 clearContentArea();
-                if (data.role === 'tutor') loadTutorDashboardView();
+                if (user.role === 'tutor') loadTutorDashboardView();
                 else loadStudentCoursesView();
             }, 1000);
-        })
-        .fail(function(xhr) {
+        },
+        
+        error: function(xhr) {
+            // Handle error response from server (e.g., 401 Unauthorized)
             const error = xhr.responseJSON ? xhr.responseJSON.message : 'Sign-in failed. Check your email and password.';
             messageArea.removeClass().addClass('text-red-600 font-bold').text(error);
-        });
+        }
+    });
 }
-
 
 // --- 7. Student Views ---
 
