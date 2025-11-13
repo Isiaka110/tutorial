@@ -6,11 +6,10 @@ const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
-const bcrypt = require('bcrypt'); // For secure password hashing
+const bcrypt = require('bcrypt'); // For password hashing/comparison
 
 // --- MongoDB Atlas Connection URI ---
-// IMPORTANT: The database name is set to 'video_tutorial'.
-// PLEASE REPLACE 'Iamagoodboy18' WITH YOUR ACTUAL MongoDB Atlas password.
+// IMPORTANT: REPLACE 'Iamagoodboy18' WITH YOUR ACTUAL MongoDB Atlas password.
 const ATLAS_URI = "mongodb+srv://kingchoco:Iamagoodboy18@cluster0.mpqc8xc.mongodb.net/video_tutorial?retryWrites=true&w=majority&appName=Cluster0";
 
 // --- Require Mongoose Models (Assume these files exist in a ./models directory) ---
@@ -33,319 +32,283 @@ const storage = multer.diskStorage({
         cb(null, UPLOADS_DIR);
     },
     filename: (req, file, cb) => {
-        // Use a safe, unique filename based on the current timestamp + original extension
-        const ext = path.extname(file.originalname);
-        cb(null, `${Date.now()}${ext}`);
-    }
+        // Use a unique name for the uploaded file
+        cb(null, Date.now() + '-' + file.originalname.replace(/ /g, '_'));
+    },
 });
 
 const upload = multer({ storage: storage });
 
-// 2. CORS (Allows your http://localhost:3000 frontend to connect)
-const corsOptions = {
-    // 🚨 CRITICAL FIX: Add the actual origin your browser is using (127.0.0.1:5500)
-    // We make the origin an array to allow both common frontend ports
-    origin: ['http://localhost:3000', 'http://127.0.0.1:5500'], 
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], 
-    allowedHeaders: ['Content-Type', 'Authorization']
-};
-app.use(cors(corsOptions));
-
 // --- 2. Middlewares ---
 
-// a. JSON Body Parser
+// 2.1. JSON Body Parser
 app.use(express.json()); 
 
-// b. CORS (Allows your http://localhost:3000 frontend to connect)
+// 2.2. CORS (Allows your http://localhost:3000 frontend to connect)
+// CRITICAL FIX: Add the Live Server origin (http://127.0.0.1:5500) and other common dev ports
+const allowedOrigins = [
+    'http://localhost:3000',        // Common React/Vite/Default port
+    'http://localhost:5500',        // Common Live Server port
+    'http://127.0.0.1:5500'         // Specific Live Server origin from your error
+];
+
 const corsOptions = {
-    origin: 'http://localhost:3000', 
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) === -1) {
+            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+            return callback(new Error(msg), false);
+        }
+        return callback(null, true);
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], 
     allowedHeaders: ['Content-Type', 'Authorization']
 };
+
 app.use(cors(corsOptions));
 
-// c. Serve Static Files (Uploads)
+// 2.3. Serve Static Files (Uploads)
 app.use('/uploads', express.static(UPLOADS_DIR));
 
+// 2.4. Utility function for recalculating ratings
+async function recalculateCourseRating(courseId) {
+    const ratings = await Comment.find({ courseId: courseId }, 'rating');
+    const totalRating = ratings.reduce((sum, c) => sum + c.rating, 0);
+    const totalReviews = ratings.length;
+    const averageRating = totalReviews > 0 ? (totalRating / totalReviews) : 0;
+    
+    // Update the Course document
+    await Course.findByIdAndUpdate(courseId, { 
+        averageRating: parseFloat(averageRating.toFixed(1)),
+        totalReviews: totalReviews
+    });
+}
 
 // --- 3. API Routes ---
 
 // --- User/Auth Routes ---
 
-// 1. POST /api/users/signup - Register a new user (Student or Tutor)
+// 3.1. POST /api/users/signup - Register a new user (Student or Tutor)
 app.post('/api/users/signup', async (req, res) => {
     const { name, email, password, role } = req.body;
-
     try {
-        const user = new User({ name, email, password, role });
-        // Mongoose pre-save hook in User.js handles password hashing
-        await user.save(); 
-
-        // Return the user object without the password
-        const userResponse = user.toObject();
-        delete userResponse.password;
-
+        if (role !== 'student' && role !== 'tutor') {
+            return res.status(400).json({ message: 'Invalid user role specified.' });
+        }
+        const user = await User.create({ name, email, password, role });
+        // The password is automatically hashed by the pre-save middleware in User.js
         res.status(201).json({ 
-            message: `${role} registered successfully.`,
-            user: userResponse
+            _id: user._id, 
+            name: user.name, 
+            email: user.email, 
+            role: user.role,
+            message: `${role} account created successfully!` 
         });
     } catch (error) {
-        if (error.code === 11000) { // Duplicate key error (email already exists)
-            return res.status(409).json({ message: 'Email already in use.' });
+        if (error.code === 11000) {
+            return res.status(400).json({ message: 'Email already in use.' });
         }
         console.error("Signup error:", error);
-        res.status(500).json({ message: 'Server error during registration.' });
+        res.status(500).json({ message: 'Server error during signup.' });
     }
 });
 
-// 2. POST /api/users/signin - Sign in a user (Student or Tutor)
+// 3.2. POST /api/users/signin - Authenticate a user
 app.post('/api/users/signin', async (req, res) => {
     const { email, password, role } = req.body;
-
     try {
-        const user = await User.findOne({ email, role });
-        if (!user) {
-            return res.status(401).json({ message: `No ${role} found with that email.` });
-        }
-
-        // Use the method defined in User.js to compare hashed password
-        const isMatch = await user.matchPassword(password);
-        if (!isMatch) {
-            return res.status(401).json({ message: 'Invalid credentials.' });
-        }
-
-        // Return the user object without the password
-        const userResponse = user.toObject();
-        delete userResponse.password;
+        const user = await User.findOne({ email });
         
-        res.json({ 
-            message: `${role} signed in successfully.`,
-            user: userResponse
-        });
+        if (user && (await user.matchPassword(password))) {
+            // Check if the user's role matches the attempted sign-in role
+            if (user.role.toLowerCase() !== role.toLowerCase()) {
+                return res.status(401).json({ message: `This account is registered as a ${user.role}. Please sign in with the correct role.` });
+            }
 
+            res.json({
+                _id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role
+            });
+        } else {
+            res.status(401).json({ message: 'Invalid email or password.' });
+        }
     } catch (error) {
-        console.error("Sign-in error:", error);
-        res.status(500).json({ message: 'Server error during sign-in.' });
+        console.error("Signin error:", error);
+        res.status(500).json({ message: 'Server error during signin.' });
     }
 });
 
+// --- Course Routes (Tutor & Student) ---
 
-// --- Course Routes ---
-
-// 3. POST /api/courses - Create a new course (Tutor only)
-// Uses 'upload.single' for optional file upload
-app.post('/api/courses', upload.single('localVideoFile'), async (req, res) => {
+// 3.3. POST /api/courses - Create a new course (Tutor only)
+app.post('/api/courses', upload.single('assetFile'), async (req, res) => {
     try {
-        const { tutorId, title, description, chapters: chaptersJson, assetType, videoUrl } = req.body;
+        const { tutorId, title, description, assetType, assetUrl, chapters } = req.body;
         
-        // Parse chapters back into an array
-        const chapters = chaptersJson ? JSON.parse(chaptersJson) : [];
-
-        let asset;
-        if (assetType === 'local' && req.file) {
-            asset = { type: 'local', url: req.file.filename };
-        } else if (assetType === 'youtube' && videoUrl) {
-            asset = { type: 'youtube', url: `https://www.youtube.com/embed/${videoUrl}` };
-        } else {
-            return res.status(400).json({ message: 'Missing course video asset or file.' });
+        if (!tutorId || !title || !description) {
+            // Attempt to clean up orphaned file if basic data is missing
+            if (req.file) fs.unlinkSync(req.file.path);
+            return res.status(400).json({ message: 'Missing required course fields.' });
         }
 
-        const newCourse = new Course({
+        let asset;
+        if (assetType === 'local') {
+            if (!req.file) {
+                return res.status(400).json({ message: 'Missing video file for local asset type.' });
+            }
+            asset = { type: 'local', url: req.file.filename };
+        } else if (assetType === 'youtube') {
+            if (!assetUrl) {
+                return res.status(400).json({ message: 'Missing YouTube URL for YouTube asset type.' });
+            }
+            asset = { type: 'youtube', url: assetUrl };
+        } else {
+            if (req.file) fs.unlinkSync(req.file.path);
+            return res.status(400).json({ message: 'Invalid asset type.' });
+        }
+
+        const chaptersArray = chapters ? JSON.parse(chapters) : [];
+
+        const newCourse = await Course.create({
             tutorId,
             title,
             description,
             asset,
-            chapters,
+            chapters: chaptersArray,
         });
 
-        const savedCourse = await newCourse.save();
-        res.status(201).json({ message: 'Course created successfully.', course: savedCourse });
-
+        res.status(201).json(newCourse);
     } catch (error) {
-        console.error("Error creating course:", error);
-        res.status(500).json({ message: 'Server error while creating course.' });
+        console.error("Course creation error:", error);
+        if (req.file) fs.unlinkSync(req.file.path); // Cleanup on server error
+        res.status(500).json({ message: 'Server error during course creation.' });
     }
 });
 
-// 4. PUT /api/courses/:courseId - Update a course (Tutor only)
-app.put('/api/courses/:courseId', upload.single('localVideoFile'), async (req, res) => {
-    try {
-        const { title, description, chapters: chaptersJson, assetType, videoUrl } = req.body;
-        const courseId = req.params.courseId;
-        const chapters = chaptersJson ? JSON.parse(chaptersJson) : [];
-        const updateFields = { title, description, chapters };
-
-        // Handle asset update logic
-        if (assetType === 'local' && req.file) {
-            // New local file uploaded
-            const oldCourse = await Course.findById(courseId);
-            if (oldCourse && oldCourse.asset.type === 'local') {
-                // Clean up old file
-                const oldFilePath = path.join(UPLOADS_DIR, oldCourse.asset.url);
-                if (fs.existsSync(oldFilePath)) {
-                    fs.unlinkSync(oldFilePath);
-                }
-            }
-            updateFields.asset = { type: 'local', url: req.file.filename };
-        } else if (assetType === 'youtube' && videoUrl) {
-            // YouTube URL provided
-            updateFields.asset = { type: 'youtube', url: `https://www.youtube.com/embed/${videoUrl}` };
-        }
-
-        const updatedCourse = await Course.findByIdAndUpdate(
-            courseId,
-            updateFields,
-            { new: true, runValidators: true }
-        );
-
-        if (!updatedCourse) {
-            return res.status(404).json({ message: 'Course not found.' });
-        }
-
-        res.json({ message: 'Course updated successfully.', course: updatedCourse });
-
-    } catch (error) {
-        console.error("Error updating course:", error);
-        res.status(500).json({ message: 'Server error while updating course.' });
-    }
-});
-
-
-// 5. DELETE /api/courses/:courseId - Delete a course (Tutor only)
-app.delete('/api/courses/:courseId', async (req, res) => {
-    try {
-        const courseId = req.params.courseId;
-        const course = await Course.findById(courseId);
-
-        if (!course) {
-            return res.status(404).json({ message: 'Course not found.' });
-        }
-
-        // 1. Delete the course document
-        await Course.findByIdAndDelete(courseId);
-
-        // 2. Clean up local file asset if it exists
-        if (course.asset.type === 'local') {
-            const filePath = path.join(UPLOADS_DIR, course.asset.url);
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-            }
-        }
-
-        // 3. Remove all related enrollments
-        await Enrollment.deleteMany({ courseId: courseId });
-
-        // 4. Remove all related comments
-        await Comment.deleteMany({ courseId: courseId });
-
-
-        res.json({ message: 'Course and all related data deleted successfully.' });
-
-    } catch (error) {
-        console.error("Error deleting course:", error);
-        res.status(500).json({ message: 'Server error while deleting course.' });
-    }
-});
-
-
-// 6. GET /api/courses - Fetch all courses (Course Catalog)
+// 3.4. GET /api/courses - Fetch ALL courses (Course Catalog)
 app.get('/api/courses', async (req, res) => {
     try {
         const courses = await Course.find({})
-            .populate('tutorId', 'name') // Only fetch the tutor's name
-            .sort({ createdAt: -1 });
+            // Populate the tutor's name for display on the catalog
+            .populate('tutorId', 'name'); 
         res.json(courses);
     } catch (error) {
         console.error("Error fetching courses:", error);
-        res.status(500).json({ message: 'Error fetching courses.' });
+        res.status(500).json({ message: 'Error fetching course catalog.' });
     }
 });
 
-// 7. GET /api/courses/tutor/:tutorId - Fetch courses by Tutor ID (Tutor Dashboard)
-app.get('/api/courses/tutor/:tutorId', async (req, res) => {
+// 3.5. GET /api/courses/:id - Fetch a single course by ID
+app.get('/api/courses/:id', async (req, res) => {
     try {
-        const courses = await Course.find({ tutorId: req.params.tutorId })
-            .sort({ createdAt: -1 }); 
-        res.json(courses);
-    } catch (error) {
-        console.error("Error fetching tutor courses:", error);
-        res.status(500).json({ message: 'Error fetching tutor courses.' });
-    }
-});
-
-// 8. GET /api/courses/:courseId - Fetch a single course
-app.get('/api/courses/:courseId', async (req, res) => {
-    try {
-        // Find the course and populate the tutor's name
-        const course = await Course.findById(req.params.courseId)
-            .populate('tutorId', 'name'); 
-
+        const course = await Course.findById(req.params.id)
+            .populate('tutorId', 'name');
         if (!course) {
             return res.status(404).json({ message: 'Course not found.' });
         }
-
-        // Count enrollments (manual calculation)
-        const enrollmentCount = await Enrollment.countDocuments({ courseId: req.params.courseId });
-        
-        // Return the course object with the enrollment count added
-        const courseResponse = course.toObject();
-        courseResponse.enrollmentCount = enrollmentCount;
-
-        res.json(courseResponse);
-
+        res.json(course);
     } catch (error) {
         console.error("Error fetching single course:", error);
         res.status(500).json({ message: 'Error fetching course details.' });
     }
 });
 
-
-// --- Enrollment Routes ---
-
-// 9. POST /api/enrollments - Enroll a student in a course
-app.post('/api/enrollments', async (req, res) => {
-    const { studentId, courseId } = req.body;
-
+// 3.6. GET /api/courses/tutor/:tutorId - Fetch courses by Tutor ID (Tutor Dashboard)
+app.get('/api/courses/tutor/:tutorId', async (req, res) => {
     try {
-        // Check for existing enrollment (prevent duplicates)
-        const existingEnrollment = await Enrollment.findOne({ studentId, courseId });
-        if (existingEnrollment) {
-            return res.status(409).json({ message: 'You are already enrolled in this course.' });
+        const courses = await Course.find({ tutorId: req.params.tutorId });
+        res.json(courses);
+    } catch (error) {
+        console.error("Error fetching tutor courses:", error);
+        res.status(500).json({ message: 'Error fetching tutor dashboard courses.' });
+    }
+});
+
+// 3.7. DELETE /api/courses/:id - Delete a course (Tutor only)
+app.delete('/api/courses/:id', async (req, res) => {
+    try {
+        const course = await Course.findByIdAndDelete(req.params.id);
+        if (!course) {
+            return res.status(404).json({ message: 'Course not found.' });
         }
 
+        // CRITICAL: Cleanup associated data
+        // 1. Delete the local video file if it exists
+        if (course.asset.type === 'local') {
+            const filePath = path.join(UPLOADS_DIR, course.asset.url);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+            }
+        }
+        // 2. Delete all related Enrollments
+        await Enrollment.deleteMany({ courseId: course._id });
+        // 3. Delete all related Comments
+        await Comment.deleteMany({ courseId: course._id });
+
+        res.json({ message: 'Course and all related data deleted successfully.' });
+    } catch (error) {
+        console.error("Error deleting course:", error);
+        res.status(500).json({ message: 'Server error while deleting course.' });
+    }
+});
+
+// --- Enrollment Routes (Student) ---
+
+// 3.8. POST /api/enrollments - Enroll a student in a course
+app.post('/api/enrollments', async (req, res) => {
+    const { studentId, courseId } = req.body;
+    try {
+        // Check if already enrolled
+        const existingEnrollment = await Enrollment.findOne({ studentId, courseId });
+        if (existingEnrollment) {
+            return res.status(400).json({ message: 'Already enrolled in this course.' });
+        }
+        
         const newEnrollment = new Enrollment({ studentId, courseId });
         await newEnrollment.save();
         
-        const course = await Course.findById(courseId, 'title');
+        // Increment the enrollmentCount on the Course model
+        const course = await Course.findByIdAndUpdate(
+            courseId, 
+            { $inc: { enrollmentCount: 1 } },
+            { new: true }
+        );
 
         res.status(201).json({ 
-            message: `Successfully enrolled in ${course ? course.title : 'the course'}.`,
+            message: 'Enrollment successful.',
             enrollment: newEnrollment,
+            courseTitle: course ? course.title : 'Course'
         });
 
     } catch (error) {
-        // Handle Mongoose unique index error if it somehow bypasses the manual check
         if (error.code === 11000) {
-             return res.status(409).json({ message: 'You are already enrolled in this course.' });
+            return res.status(400).json({ message: 'Already enrolled in this course (Unique index violation).' });
         }
         console.error("Error during enrollment:", error);
         res.status(500).json({ message: 'Server error during enrollment.' });
     }
 });
 
-// 10. GET /api/enrollments/:studentId - Fetch enrolled courses for a student (My Courses View)
+// 3.9. GET /api/enrollments/:studentId - Fetch enrolled courses for a student (My Courses View)
 app.get('/api/enrollments/:studentId', async (req, res) => {
     try {
         const enrollments = await Enrollment.find({ studentId: req.params.studentId })
             // Populate course details and the course's tutor details
             .populate({
                 path: 'courseId',
+                select: 'title description averageRating asset', // Select necessary course fields
                 populate: {
                     path: 'tutorId',
                     select: 'name' // Only need the name of the tutor
                 }
             });
 
+        if (enrollments.length === 0) {
+            return res.json([]);
+        }
         res.json(enrollments);
     } catch (error) {
         console.error("Error fetching student enrollments:", error);
@@ -353,75 +316,50 @@ app.get('/api/enrollments/:studentId', async (req, res) => {
     }
 });
 
-// 11. PATCH /api/enrollments/:enrollmentId/progress - Update a student's progress
-app.patch('/api/enrollments/:enrollmentId/progress', async (req, res) => {
+// 3.10. PATCH /api/enrollments/:enrollmentId - Update course progress (Student)
+app.patch('/api/enrollments/:enrollmentId', async (req, res) => {
+    const { progressPercentage } = req.body;
     try {
-        const { progressPercentage } = req.body;
-
-        const updatedEnrollment = await Enrollment.findByIdAndUpdate(
-            req.params.enrollmentId,
-            { progressPercentage },
-            { new: true, runValidators: true }
+        const enrollment = await Enrollment.findByIdAndUpdate(
+            req.params.enrollmentId, 
+            { progressPercentage }, 
+            { new: true } // Return the updated document
         );
 
-        if (!updatedEnrollment) {
+        if (!enrollment) {
             return res.status(404).json({ message: 'Enrollment not found.' });
         }
 
-        res.json({ message: 'Progress updated successfully.', enrollment: updatedEnrollment });
-
+        res.json(enrollment);
     } catch (error) {
-        console.error("Error updating progress:", error);
+        console.error("Error updating enrollment progress:", error);
         res.status(500).json({ message: 'Server error while updating progress.' });
     }
 });
 
+// --- Comment/Review Routes (Student & Tutor) ---
 
-// --- Comment/Review Routes ---
-
-// 12. POST /api/comments - Create a new comment/review (Student only)
+// 3.11. POST /api/comments - Post a new comment/review (Student only)
 app.post('/api/comments', async (req, res) => {
     const { courseId, studentId, text, rating } = req.body;
-
     try {
-        // 1. Check if the student is enrolled in the course
-        const isEnrolled = await Enrollment.findOne({ studentId, courseId });
-        if (!isEnrolled) {
-            return res.status(403).json({ message: 'You must be enrolled to leave a review.' });
+        if (!courseId || !studentId || !text) {
+            return res.status(400).json({ message: 'Missing required fields for comment.' });
         }
 
-        // 2. Prevent a student from leaving multiple reviews
-        const existingComment = await Comment.findOne({ courseId, studentId });
-        if (existingComment) {
-             return res.status(409).json({ message: 'You have already reviewed this course.' });
-        }
-
-        // 3. Create the new comment
-        const newComment = new Comment({ courseId, studentId, text, rating });
-        await newComment.save();
+        const newComment = await Comment.create({ courseId, studentId, text, rating });
         
-        // 4. Recalculate average rating on the Course model
-        const ratings = await Comment.find({ courseId }, 'rating');
-        const totalRating = ratings.reduce((sum, c) => sum + c.rating, 0);
-        const totalReviews = ratings.length;
-        // Calculate average and round to one decimal place
-        const averageRating = totalReviews > 0 ? (totalRating / totalReviews) : 0; 
-        
-        // 5. Update the Course document
-        await Course.findByIdAndUpdate(courseId, { 
-            averageRating: parseFloat(averageRating.toFixed(1)),
-            totalReviews: totalReviews
-        });
+        // CRITICAL: Recalculate average rating after a new comment is added
+        await recalculateCourseRating(courseId);
 
-        res.status(201).json({ message: 'Review submitted successfully.', comment: newComment });
-
+        res.status(201).json(newComment);
     } catch (error) {
-        console.error("Error submitting comment:", error);
-        res.status(500).json({ message: 'Server error while submitting comment.' });
+        console.error("Error creating comment:", error);
+        res.status(500).json({ message: 'Server error while creating comment.' });
     }
 });
 
-// 13. GET /api/comments/:courseId - Fetch all comments for a course
+// 3.12. GET /api/comments/:courseId - Fetch all comments for a course
 app.get('/api/comments/:courseId', async (req, res) => {
     try {
         const comments = await Comment.find({ courseId: req.params.courseId })
@@ -436,7 +374,7 @@ app.get('/api/comments/:courseId', async (req, res) => {
     }
 });
 
-// 14. DELETE /api/comments/:commentId - Delete a comment (Used by Tutor)
+// 3.13. DELETE /api/comments/:commentId - Delete a comment (Used by Tutor)
 app.delete('/api/comments/:commentId', async (req, res) => {
     try {
         const comment = await Comment.findByIdAndDelete(req.params.commentId);
@@ -444,17 +382,8 @@ app.delete('/api/comments/:commentId', async (req, res) => {
             return res.status(404).json({ message: 'Comment not found.' });
         }
         
-        // Recalculate average rating on the Course model after deletion
-        const ratings = await Comment.find({ courseId: comment.courseId }, 'rating');
-        const totalRating = ratings.reduce((sum, c) => sum + c.rating, 0);
-        const totalReviews = ratings.length;
-        const averageRating = totalReviews > 0 ? (totalRating / totalReviews) : 0;
-        
-        // Update the Course document
-        await Course.findByIdAndUpdate(comment.courseId, { 
-            averageRating: parseFloat(averageRating.toFixed(1)),
-            totalReviews: totalReviews
-        });
+        // CRITICAL: Recalculate average rating on the Course model after deletion
+        await recalculateCourseRating(comment.courseId);
 
         res.json({ message: 'Comment deleted successfully.' });
     } catch (error) {
@@ -470,7 +399,7 @@ mongoose.connect(ATLAS_URI)
     .then(() => {
         console.log('MongoDB Atlas connected successfully...');
         app.listen(port, () => {
-            console.log(`Server running at http://localhost:${port}`);
+            console.log(`Server running on http://localhost:${port}`);
         });
     })
     .catch(err => {
